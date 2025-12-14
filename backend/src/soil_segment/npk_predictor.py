@@ -13,13 +13,15 @@ from typing import Dict
 import joblib
 import numpy as np
 
-# Bead compositions used in the original Gradio app
-BEAD_COMPOSITIONS = [
-    {"N": 18, "P": 46, "K": 0, "color": "black", "name": "Black Beads"},   # class 1
-    {"N": 0, "P": 0, "K": 60, "color": "red", "name": "Red Beads"},        # class 2
-    {"N": 21, "P": 0, "K": 0, "color": "brown", "name": "Stain"},          # class 3
-    {"N": 46, "P": 0, "K": 0, "color": "white", "name": "White Beads"},    # class 4
-]
+# Class composition mapping (7 classes total, background + 6 pellet types)
+CLASS_COMPOSITIONS = {
+    1: {"N": 18.0, "P": 45.5, "K": 0.0},   # Black_DAP
+    2: {"N": 0.0,  "P": 0.0,  "K": 60.0},  # Red_MOP
+    3: {"N": 20.5, "P": 0.0,  "K": 0.0},   # White_AMP (ammonium sulphate)
+    4: {"N": 0.0,  "P": 0.0,  "K": 0.0},   # White_Boron (ignored for NPK)
+    5: {"N": 0.0,  "P": 0.0,  "K": 0.0},   # White_Mg (ignored for NPK)
+    6: {"N": 46.0, "P": 0.0,  "K": 0.0},   # Yellow_Urea
+}
 
 
 class NPKPredictor:
@@ -47,17 +49,16 @@ class NPKPredictor:
                 self.model = None
 
     def predict(self, image_np: np.ndarray, mask: np.ndarray) -> Dict[str, float]:
-        # Calculate cluster areas for classes 1..4
-        cluster_areas = []
-        for class_id in range(1, 5):
-            cluster_areas.append(int(np.sum(mask == class_id)))
+        # Pixel counts per class (ignore background=0)
+        class_pixels = {cls: int(np.sum(mask == cls)) for cls in CLASS_COMPOSITIONS.keys()}
+        total_pixels = sum(class_pixels.values())
 
-        total_pixels = sum(cluster_areas)
         if total_pixels == 0:
             approx_npk = [0.0, 0.0, 0.0]
         else:
             npk_total = {"N": 0.0, "P": 0.0, "K": 0.0}
-            for area, comp in zip(cluster_areas, BEAD_COMPOSITIONS):
+            for cls, area in class_pixels.items():
+                comp = CLASS_COMPOSITIONS.get(cls, {"N": 0.0, "P": 0.0, "K": 0.0})
                 for key in npk_total:
                     npk_total[key] += comp[key] * area
             approx_npk = [

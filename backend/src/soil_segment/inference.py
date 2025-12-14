@@ -11,16 +11,20 @@ import torch.nn.functional as F
 
 from .model import DummySegmenter, SimpleUNet
 
-MODEL_SIZE = 512
-DEFAULT_NUM_CLASSES = 5
+# Match the 2D-soil-segment repo defaults
+MODEL_SIZE = 1024
+DEFAULT_NUM_CLASSES = 7
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
+# Palette from DEFAULT_CLASS_COLORS in the original repo
 CLASS_COLORS = [
-    (0, 0, 0),        # Background
-    (139, 69, 19),    # Class 1 (brown/black)
-    (255, 0, 0),      # Class 2 (red)
-    (255, 255, 0),    # Class 3 (yellow)
-    (0, 255, 255),    # Class 4 (cyan)
+    (0, 0, 0),        # background - black
+    (220, 20, 60),    # Black_DAP - crimson
+    (178, 34, 34),    # Red_MOP - firebrick
+    (135, 206, 250),  # White_AMP - light sky blue
+    (255, 182, 193),  # White_Boron - light pink
+    (144, 238, 144),  # White_Mg - light green
+    (255, 215, 0),    # Yellow_Urea - gold
 ]
 
 

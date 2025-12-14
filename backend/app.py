@@ -34,8 +34,8 @@ history_items = []
 sample_items = []
 
 CHECKPOINT_DIR = Path(__file__).parent / "models"
-UNET_CHECKPOINT = CHECKPOINT_DIR / "unet_best.pth"
-REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.pkl"
+UNET_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
+REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.plk"
 TARGET_SIZE = (1024, 1024)
 
 

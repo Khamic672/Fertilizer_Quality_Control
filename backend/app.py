@@ -11,6 +11,7 @@ import base64
 from pathlib import Path
 import sys
 import torch
+import datetime
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -29,6 +30,8 @@ CORS(app)  # Enable CORS for Vue frontend
 unet_model = None
 npk_predictor = None
 device = None
+history_items = []
+sample_items = []
 
 CHECKPOINT_DIR = Path(__file__).parent / "models"
 UNET_CHECKPOINT = CHECKPOINT_DIR / "unet_best.pth"
@@ -52,6 +55,32 @@ def initialize_models():
     npk_predictor = NPKPredictor(str(REGRESSION_CHECKPOINT))
     
     print("All models loaded successfully.")
+    initialize_samples()
+
+
+def initialize_samples():
+    """Seed sample gallery items."""
+    global sample_items, history_items
+    if sample_items:
+        return
+    sample_items = [
+        {"id": 1, "label": "Sample A", "image": generate_placeholder_base64()},
+        {"id": 2, "label": "Sample B", "image": generate_placeholder_base64((44, 92, 138))},
+        {"id": 3, "label": "Sample C", "image": generate_placeholder_base64((80, 160, 90))},
+    ]
+    history_items = [
+        {
+            "id": 1,
+            "name": "Lot A",
+            "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "moisture": 10.0,
+            "ph": 6.7,
+            "n": 12.3,
+            "p": 6.1,
+            "k": 7.9,
+            "status": "ok",
+        }
+    ]
 
 
 def preprocess_image(image_data):
@@ -109,6 +138,38 @@ def numpy_to_base64(img_array):
     return f"data:image/png;base64,{img_str}"
 
 
+def generate_placeholder_base64(color=(242, 140, 40)):
+    """Create a simple placeholder banner as base64 PNG."""
+    width, height = 300, 150
+    img = Image.new("RGB", (width, height), (245, 248, 255))
+    stripe = Image.new("RGB", (width, 50), color)
+    img.paste(stripe, (0, height // 2 - 25))
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
+
+
+def build_status_messages(npk_values, mask_pixels):
+    """Generate UI-friendly status list based on thresholds."""
+    statuses = []
+    if mask_pixels < 1000:
+        statuses.append({"level": "bad", "message": "Segmentation confidence is low. Retry with a clearer image."})
+    else:
+        statuses.append({"level": "good", "message": "Mask detected successfully."})
+
+    if npk_values["N"] < 5 or npk_values["P"] < 3:
+        statuses.append({"level": "warn", "message": "Nitrogen or phosphorus below desired range."})
+    else:
+        statuses.append({"level": "good", "message": "N and P within acceptable range."})
+
+    if npk_values["K"] < 4:
+        statuses.append({"level": "warn", "message": "Potassium slightly low."})
+    else:
+        statuses.append({"level": "good", "message": "Potassium level looks stable."})
+
+    return statuses
+
+
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -136,6 +197,18 @@ def model_info():
             'loaded': npk_predictor is not None
         }
     })
+
+
+@app.route('/api/samples', methods=['GET'])
+def samples_api():
+    """Return sample gallery items."""
+    return jsonify({"items": sample_items})
+
+
+@app.route('/api/history', methods=['GET'])
+def history_api():
+    """Return processed history."""
+    return jsonify({"items": history_items})
 
 
 @app.route('/api/upload', methods=['POST'])
@@ -182,6 +255,7 @@ def upload_and_process():
         
         # Step 3: NPK Prediction
         npk_values = npk_predictor.predict(image_np, mask)
+        status_messages = build_status_messages(npk_values, int(np.sum(mask > 0)))
         
         # Step 4: Prepare response
         response = {
@@ -193,6 +267,7 @@ def upload_and_process():
                 'P': float(npk_values['P']),
                 'K': float(npk_values['K'])
             },
+            'status': status_messages,
             'metadata': {
                 'classes_detected': int(len(np.unique(mask)) - 1),
                 'pixels_analyzed': int(np.sum(mask > 0)),
@@ -200,6 +275,21 @@ def upload_and_process():
             }
         }
         
+        # Update in-memory history
+        history_items.insert(0, {
+            "id": len(history_items) + 1,
+            "name": request.files.get('file', type('obj', (object,), {'filename': 'upload.png'})()).filename if request.files else "upload",
+            "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+            "moisture": round(np.random.uniform(8, 14), 2),
+            "ph": round(np.random.uniform(5.5, 7.5), 2),
+            "n": npk_values['N'],
+            "p": npk_values['P'],
+            "k": npk_values['K'],
+            "status": "bad" if any(s['level'] == 'bad' for s in status_messages) else ("warn" if any(s['level'] == 'warn' for s in status_messages) else "ok"),
+        })
+        if len(history_items) > 25:
+            history_items.pop()
+
         return jsonify(response)
     
     except Exception as e:

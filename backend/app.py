@@ -2,22 +2,23 @@
 Flask Backend API for Fertilizer Quality Control
 Exposes endpoints for image processing and NPK prediction
 """
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-import torch
 import numpy as np
 from PIL import Image
-import cv2
 import io
 import base64
 from pathlib import Path
 import sys
+import torch
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from soil_segment.model import UNet
-from soil_segment.inference import load_model, predict_segmentation
+from soil_segment.inference import (
+    load_segmentation_model,
+    predict_segmentation,
+)
 from soil_segment.npk_predictor import NPKPredictor
 
 # Initialize Flask app
@@ -29,10 +30,10 @@ unet_model = None
 npk_predictor = None
 device = None
 
-# Configuration
 CHECKPOINT_DIR = Path(__file__).parent / "models"
 UNET_CHECKPOINT = CHECKPOINT_DIR / "unet_best.pth"
 REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.pkl"
+TARGET_SIZE = (1024, 1024)
 
 
 def initialize_models():
@@ -44,13 +45,13 @@ def initialize_models():
     
     # Load UNet
     print("Loading UNet segmentation model...")
-    unet_model = load_model(str(UNET_CHECKPOINT), device)
+    unet_model = load_segmentation_model(str(UNET_CHECKPOINT), device)
     
     # Load regression model
     print("Loading NPK regression model...")
     npk_predictor = NPKPredictor(str(REGRESSION_CHECKPOINT))
     
-    print("✓ All models loaded successfully!")
+    print("All models loaded successfully.")
 
 
 def preprocess_image(image_data):
@@ -66,8 +67,7 @@ def preprocess_image(image_data):
     
     # Convert to RGB and resize
     image = image.convert('RGB')
-    image_resized = image.resize((1024, 1024), Image.BILINEAR)
-    
+    image_resized = image.resize(TARGET_SIZE, Image.BILINEAR)
     return np.array(image_resized)
 
 
@@ -168,7 +168,7 @@ def upload_and_process():
         if 'file' in request.files:
             file = request.files['file']
             image_np = preprocess_image(file)
-        elif 'image' in request.json:
+        elif request.is_json and 'image' in request.json:
             image_data = request.json['image']
             image_np = preprocess_image(image_data)
         else:
@@ -246,19 +246,8 @@ def batch_upload():
 
 if __name__ == '__main__':
     print("\n" + "="*50)
-    print("🌾 Fertilizer QC Backend API")
+    print("Fertilizer QC Backend API")
     print("="*50)
-    
-    # Verify checkpoints exist
-    if not UNET_CHECKPOINT.exists():
-        print(f"ERROR: UNet checkpoint not found at {UNET_CHECKPOINT}")
-        print("Please place your checkpoint in backend/models/")
-        sys.exit(1)
-    
-    if not REGRESSION_CHECKPOINT.exists():
-        print(f"ERROR: Regression model not found at {REGRESSION_CHECKPOINT}")
-        print("Please place your model in backend/models/")
-        sys.exit(1)
     
     # Initialize models
     initialize_models()

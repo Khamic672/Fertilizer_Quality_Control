@@ -7,23 +7,41 @@ from typing import Tuple
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
-from .model import DummySegmenter, UNet
+from .model import DummySegmenter, SimpleUNet
+
+MODEL_SIZE = 512
+DEFAULT_NUM_CLASSES = 5
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
+CLASS_COLORS = [
+    (0, 0, 0),        # Background
+    (139, 69, 19),    # Class 1 (brown/black)
+    (255, 0, 0),      # Class 2 (red)
+    (255, 255, 0),    # Class 3 (yellow)
+    (0, 255, 255),    # Class 4 (cyan)
+]
 
 
 def preprocess_for_model(image_np: np.ndarray) -> torch.Tensor:
     """
-    Convert a 1024x1024 RGB numpy image into a normalized torch tensor.
+    Convert an RGB numpy image into a normalized torch tensor resized for the model.
     """
     tensor = torch.from_numpy(image_np).float() / 255.0  # [H, W, C]
     tensor = tensor.permute(2, 0, 1).unsqueeze(0)  # [1, C, H, W]
+    tensor = F.interpolate(tensor, size=(MODEL_SIZE, MODEL_SIZE), mode="bilinear", align_corners=False)
+
+    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
+    std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
+    tensor = (tensor - mean) / std
     return tensor
 
 
 def _load_state_dict(model: torch.nn.Module, checkpoint: dict) -> None:
     state_dict = checkpoint
-    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
-        state_dict = checkpoint["state_dict"]
+    if isinstance(checkpoint, dict):
+        state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing:
         print(f"Warning: missing keys when loading checkpoint: {missing}")
@@ -38,7 +56,7 @@ def load_segmentation_model(checkpoint_path: str, device: torch.device) -> torch
     path = Path(checkpoint_path)
     if not path.exists():
         print(f"Checkpoint not found at {path}. Using dummy segmenter.")
-        model = DummySegmenter()
+        model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
         model.to(device)
         model.eval()
         return model
@@ -49,17 +67,17 @@ def load_segmentation_model(checkpoint_path: str, device: torch.device) -> torch
         if isinstance(checkpoint, torch.jit.ScriptModule):
             model = checkpoint
         else:
-            num_classes = 2
+            num_classes = DEFAULT_NUM_CLASSES
             if isinstance(checkpoint, dict):
                 num_classes = int(checkpoint.get("num_classes", num_classes))
-            model = UNet(num_classes=num_classes)
+            model = SimpleUNet(n_classes=num_classes)
             _load_state_dict(model, checkpoint)
         model.to(device)
         model.eval()
         return model
     except Exception as exc:
         print(f"Failed to load checkpoint ({exc}). Using dummy segmenter.")
-        model = DummySegmenter()
+        model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
         model.to(device)
         model.eval()
         return model
@@ -83,8 +101,17 @@ def predict_segmentation(model: torch.nn.Module, image_np: np.ndarray, device: t
     """
     Generate a mask with integer labels from the segmentation model.
     Background is label 0.
+    The returned mask is resized back to the original image resolution.
     """
     logits = _run_model(model, image_np, device)
     mask = np.argmax(logits, axis=-1).astype(np.uint8)
-    return mask
 
+    # Resize mask back to original image size if needed
+    if mask.shape != image_np.shape[:2]:
+        from PIL import Image
+
+        mask_img = Image.fromarray(mask, mode="L")
+        mask_img = mask_img.resize((image_np.shape[1], image_np.shape[0]), Image.NEAREST)
+        mask = np.array(mask_img, dtype=np.uint8)
+
+    return mask

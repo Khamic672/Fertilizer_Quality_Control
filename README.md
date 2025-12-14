@@ -24,8 +24,8 @@ fertilizer-qc-app/
 │   ├── requirements.txt           # Python dependencies
 │   │
 │   ├── models/                    # Model checkpoints
-│   │   ├── unet_best.pth
-│   │   └── regression_model.pkl
+│   │   ├── best_model.pth
+│   │   └── regression_model.plk
 │   │
 │   ├── src/
 │   │   └── soil_segment/
@@ -72,8 +72,8 @@ cd backend
 # Create models directory and add your checkpoints
 mkdir -p models
 # Place your models:
-# - models/unet_best.pth
-# - models/regression_model.pkl
+# - models/best_model.pth
+# - models/regression_model.plk
 
 # Install dependencies
 pip install -r requirements.txt
@@ -188,8 +188,8 @@ Process multiple images
 
 Edit `backend/app.py`:
 ```python
-UNET_CHECKPOINT = CHECKPOINT_DIR / "unet_best.pth"
-REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.pkl"
+UNET_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
+REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.plk"
 ```
 
 ### Frontend - Change API URL

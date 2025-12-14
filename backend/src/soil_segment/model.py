@@ -101,3 +101,54 @@ class DummySegmenter(nn.Module):
         logits = torch.cat([bg, fg], dim=1)
         return logits
 
+
+class SimpleUNet(nn.Module):
+    """
+    Architecture matching the 2D-soil-segment training project (features [64,128,256,512]).
+    """
+
+    def __init__(self, in_channels: int = 3, n_classes: int = 5, features=None):
+        super().__init__()
+        if features is None:
+            features = [64, 128, 256, 512]
+
+        self.encoder = nn.ModuleList()
+        self.pool = nn.MaxPool2d(2, 2)
+
+        channels = in_channels
+        for feature in features:
+            self.encoder.append(conv_block(channels, feature))
+            channels = feature
+
+        self.bottleneck = conv_block(features[-1], features[-1] * 2)
+
+        self.upconvs = nn.ModuleList()
+        self.decoder = nn.ModuleList()
+
+        for feature in reversed(features):
+            self.upconvs.append(nn.ConvTranspose2d(feature * 2, feature, 2, 2))
+            self.decoder.append(conv_block(feature * 2, feature))
+
+        self.final_conv = nn.Conv2d(features[0], n_classes, kernel_size=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        skips = []
+        for down in self.encoder:
+            x = down(x)
+            skips.append(x)
+            x = self.pool(x)
+
+        x = self.bottleneck(x)
+        skips = skips[::-1]
+
+        for idx in range(len(self.upconvs)):
+            x = self.upconvs[idx](x)
+            skip_connection = skips[idx]
+
+            if x.shape != skip_connection.shape:
+                x = nn.functional.interpolate(x, size=skip_connection.shape[2:], mode="bilinear", align_corners=False)
+
+            x = torch.cat((skip_connection, x), dim=1)
+            x = self.decoder[idx](x)
+
+        return self.final_conv(x)

@@ -17,6 +17,7 @@ import datetime
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from soil_segment.inference import (
+    CLASS_COLORS,
     load_segmentation_model,
     predict_segmentation,
 )
@@ -101,31 +102,17 @@ def preprocess_image(image_data):
 
 
 def create_segmentation_overlay(original, mask):
-    """Create colored overlay of segmentation"""
-    colors = [
-        [255, 0, 0],      # Red
-        [0, 255, 0],      # Green
-        [0, 0, 255],      # Blue
-        [255, 255, 0],    # Yellow
-        [255, 0, 255],    # Magenta
-        [0, 255, 255],    # Cyan
-        [255, 128, 0],    # Orange
-        [128, 0, 255],    # Purple
-    ]
-    
+    """Create colored overlay of segmentation using project palette."""
     h, w = mask.shape
     colored_mask = np.zeros((h, w, 3), dtype=np.uint8)
-    
+
     for class_id in np.unique(mask):
-        if class_id == 0:
-            continue
-        color_idx = (class_id - 1) % len(colors)
-        colored_mask[mask == class_id] = colors[color_idx]
-    
-    # Black background
+        if class_id < len(CLASS_COLORS):
+            colored_mask[mask == class_id] = CLASS_COLORS[class_id]
+
     overlay = np.zeros_like(original)
     overlay[mask > 0] = colored_mask[mask > 0]
-    
+
     return overlay
 
 

@@ -1,0 +1,12 @@
+-accept image
+-process to 1024*1024
+---
+-return 
+-main file 
+ -mask segment
+ -initial predict
+ -regression
+ -postprocess
+-output
+---
+expose endpoints

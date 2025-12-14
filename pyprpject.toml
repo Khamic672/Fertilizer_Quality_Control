@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soil-segment"
+version = "0.1.0"
+description = "2D soil segmentation and NPK prediction"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [
+  { name = "Your Name" }
+]
+dependencies = [
+  "gradio",
+  "joblib",
+  "matplotlib",
+  "numpy",
+  "opencv-python",
+  "pillow",
+  "roboflow",
+  "requests",
+  "scikit-learn",
+  "seaborn",
+  "torch",
+  "torchvision",
+  "tqdm",
+  "tomli; python_version < \"3.11\"",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+]
+
+[project.scripts]
+soil-segment-train = "soil_segment.unet_trainer:main"
+soil-segment-viz = "soil_segment.visualizer:main"
+soil-segment-annotate = "scripts.annotator:main"
+soil-segment-predict = "scripts.npk_pixel_predictor:main"
+soil-segment-gradio = "scripts.gradio_app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src", "scripts" = "scripts"}
+
+[tool.setuptools.packages.find]
+where = ["src", "scripts"]
+include = ["soil_segment*", "scripts*"]
+
+[tool.soil_segment]
+unet_dataset = "datasets/UNET_dataset"
+regression_dataset = "datasets/regression_dataset"
+checkpoints_dir = "checkpoints"

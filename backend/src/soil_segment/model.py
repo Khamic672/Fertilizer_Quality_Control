@@ -12,15 +12,22 @@ import torch
 import torch.nn as nn
 
 
-def conv_block(in_channels: int, out_channels: int) -> nn.Sequential:
-    return nn.Sequential(
-        nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-        nn.BatchNorm2d(out_channels),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-        nn.BatchNorm2d(out_channels),
-        nn.ReLU(inplace=True),
-    )
+class ConvBlock(nn.Module):
+    """Matches the ConvBlock naming used in the original 2D-soil-segment checkpoints."""
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.conv(x)
 
 
 def up_block(in_channels: int, out_channels: int) -> nn.Sequential:
@@ -117,17 +124,17 @@ class SimpleUNet(nn.Module):
 
         channels = in_channels
         for feature in features:
-            self.encoder.append(conv_block(channels, feature))
+            self.encoder.append(ConvBlock(channels, feature))
             channels = feature
 
-        self.bottleneck = conv_block(features[-1], features[-1] * 2)
+        self.bottleneck = ConvBlock(features[-1], features[-1] * 2)
 
         self.upconvs = nn.ModuleList()
         self.decoder = nn.ModuleList()
 
         for feature in reversed(features):
             self.upconvs.append(nn.ConvTranspose2d(feature * 2, feature, 2, 2))
-            self.decoder.append(conv_block(feature * 2, feature))
+            self.decoder.append(ConvBlock(feature * 2, feature))
 
         self.final_conv = nn.Conv2d(features[0], n_classes, kernel_size=1)
 

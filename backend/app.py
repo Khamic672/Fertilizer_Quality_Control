@@ -73,6 +73,11 @@ def initialize_samples():
         {
             "id": 1,
             "name": "Lot A",
+            "lot_number": "Lot A",
+            "formula": "15-15-15",
+            "threshold": 0.5,
+            "total_images": 1,
+            "passed_images": 1,
             "date": datetime.datetime.now().strftime("%Y-%m-%d"),
             "moisture": 10.0,
             "ph": 6.7,
@@ -157,6 +162,14 @@ def build_status_messages(npk_values, mask_pixels):
     return statuses
 
 
+def parse_float(value, default=None):
+    """Parse a float-like value safely."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -206,6 +219,9 @@ def upload_and_process():
     Request:
         - file: image file OR
         - image: base64 encoded image
+        - formula: fertilizer NPK formula string (optional)
+        - lot_number: lot identifier (optional)
+        - threshold: allowable percent error (optional)
     
     Response:
         {
@@ -224,6 +240,23 @@ def upload_and_process():
         }
     """
     try:
+        form_payload = request.form or {}
+        json_payload = request.json if request.is_json else {}
+
+        formula = (
+            form_payload.get("formula")
+            or form_payload.get("npk")
+            or (json_payload or {}).get("formula")
+            or (json_payload or {}).get("npk")
+        )
+        lot_number = (
+            form_payload.get("lot_number")
+            or form_payload.get("lotNumber")
+            or (json_payload or {}).get("lot_number")
+            or (json_payload or {}).get("lotNumber")
+        )
+        threshold = parse_float(form_payload.get("threshold") or (json_payload or {}).get("threshold"))
+
         # Get image from request
         if 'file' in request.files:
             file = request.files['file']
@@ -254,6 +287,11 @@ def upload_and_process():
                 'P': float(npk_values['P']),
                 'K': float(npk_values['K'])
             },
+            'inputs': {
+                'formula': formula,
+                'lot_number': lot_number,
+                'threshold': threshold
+            },
             'status': status_messages,
             'metadata': {
                 'classes_detected': int(len(np.unique(mask)) - 1),
@@ -263,9 +301,15 @@ def upload_and_process():
         }
         
         # Update in-memory history
+        passed = not any(s['level'] == 'bad' for s in status_messages)
         history_items.insert(0, {
             "id": len(history_items) + 1,
             "name": request.files.get('file', type('obj', (object,), {'filename': 'upload.png'})()).filename if request.files else "upload",
+            "lot_number": lot_number or "N/A",
+            "formula": formula or "N/A",
+            "threshold": threshold,
+            "total_images": 1,
+            "passed_images": 1 if passed else 0,
             "date": datetime.datetime.now().strftime("%Y-%m-%d"),
             "moisture": round(np.random.uniform(8, 14), 2),
             "ph": round(np.random.uniform(5.5, 7.5), 2),

@@ -10,57 +10,48 @@
       </div>
       <div class="top-actions">
         <span :class="['pill', backendStatusClass]">Backend: {{ backendLabel }}</span>
-        <button class="ghost" @click="refreshHistory">History</button>
-        <button class="primary" @click="scrollToUpload">Upload now</button>
       </div>
     </header>
 
     <main class="layout">
+      <div class="hero-heading">
+        <h2>ระบบควบคุมคุณภาพปุ๋ย</h2>
+        <p class="muted">ถ่ายภาพปุ๋ยเพื่อตรวจสอบคุณภาพด้วยการวิเคราะห์ภาพ AI</p>
+      </div>
+
       <section id="upload-card" class="card upload-card">
         <div class="upload-left">
           <div class="drop-area" @click="triggerFileSelect" @dragover.prevent @drop.prevent="onDrop">
             <input ref="fileInput" type="file" accept="image/*" hidden @change="onFileChange" />
             <div class="drop-inner">
-              <div class="camera-circle">📷</div>
-              <div>
-                <h3>Upload a photo or take a new sample</h3>
-                <p class="muted">We resize to 1024x1024 and run segmentation + regression locally.</p>
-              </div>
+              <div class="camera-icon">📷</div>
+              <p class="muted center">ถ่ายรูป หรืออัปโหลดรูปการผสมปุ๋ย</p>
             </div>
             <div class="upload-buttons">
-              <button class="ghost">Camera</button>
-              <button class="ghost">Album</button>
-              <button class="ghost">Samples</button>
+              <button class="ghost pill-button">📷 ถ่ายรูป</button>
+              <button class="ghost pill-button">⬆️ อัปโหลดรูป</button>
             </div>
           </div>
 
-          <div class="sample-strip">
-            <div v-for="sample in samples" :key="sample.id" class="sample-thumb">
-              <img :src="sample.image" alt="sample" />
-              <p>{{ sample.label }}</p>
+          <div class="input-card">
+            <p class="section-label">สูตรปุ๋ยที่ต้องการวิเคราะห์</p>
+            <div class="input-grid">
+              <div class="field">
+                <label>สูตรปุ๋ย (NPK)</label>
+                <input v-model="formInputs.formula" placeholder="เช่น 15-15-15" />
+              </div>
+              <div class="field">
+                <label>Lot number*</label>
+                <input v-model="formInputs.lotNumber" placeholder="ระบุ" />
+              </div>
+              <div class="field">
+                <label>Threshold (% error)*</label>
+                <input v-model.number="formInputs.threshold" type="number" min="0" max="100" placeholder="ระบุ" />
+              </div>
             </div>
           </div>
 
           <div class="action-row">
-            <div class="selectors">
-              <select v-model="filters.region">
-                <option value="">Region</option>
-                <option>North</option>
-                <option>Central</option>
-                <option>South</option>
-              </select>
-              <select v-model="filters.district">
-                <option value="">District</option>
-                <option>A</option>
-                <option>B</option>
-              </select>
-              <select v-model="filters.crop">
-                <option value="">Crop</option>
-                <option>Maize</option>
-                <option>Rice</option>
-                <option>Wheat</option>
-              </select>
-            </div>
             <button class="primary" :disabled="loading" @click="processLast">Upload &amp; Segment</button>
           </div>
 
@@ -69,7 +60,7 @@
           </div>
         </div>
 
-        <div class="upload-right" v-if="results">
+        <div class="upload-results" v-if="results">
           <div class="preview-card">
             <img :src="results.segmentation || results.original" alt="preview" />
           </div>
@@ -104,54 +95,40 @@
           </div>
         </div>
 
-        <div v-else class="upload-right placeholder">
+        <div v-else class="upload-results placeholder">
           <p class="muted">Results will appear here after processing.</p>
         </div>
       </section>
 
       <section class="card history-card">
         <div class="history-head">
-          <h3>Lab entries</h3>
-          <div class="history-actions">
-            <select v-model="filters.lot">
-              <option value="">Lot</option>
-              <option>Lot A</option>
-              <option>Lot B</option>
-            </select>
-            <select v-model="filters.status">
-              <option value="">Status</option>
-              <option value="ok">OK</option>
-              <option value="warn">Warn</option>
-              <option value="bad">Bad</option>
-            </select>
-            <button class="ghost" @click="resetFilters">Reset</button>
-            <button class="primary small" @click="refreshHistory">Update</button>
-          </div>
+          <h3>ประวัติการวิเคราะห์</h3>
+          <button class="ghost icon-button">
+            ↓ ดาวน์โหลด Excel
+          </button>
         </div>
 
         <div class="table-wrapper">
           <table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Date</th>
-                <th>Moisture</th>
-                <th>pH</th>
-                <th>N%</th>
-                <th>P%</th>
-                <th>K%</th>
-                <th>Status</th>
+                <th>สูตร</th>
+                <th>Lot number</th>
+                <th>Treshold</th>
+                <th>จำนวนรูปทั้งหมด</th>
+                <th>จำนวนรูปที่ผ่าน</th>
+                <th>วันที่ตรวจสอบ</th>
+                <th>ผลตรวจ</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in filteredHistory" :key="row.id">
-                <td>{{ row.name }}</td>
+                <td>{{ row.formula || '—' }}</td>
+                <td>{{ row.lot_number || row.name }}</td>
+                <td>{{ row.threshold != null ? row.threshold + '%' : '—' }}</td>
+                <td>{{ row.total_images ?? 1 }}</td>
+                <td>{{ row.passed_images ?? (row.status === 'ok' ? 1 : 0) }}</td>
                 <td>{{ row.date }}</td>
-                <td>{{ row.moisture }}</td>
-                <td>{{ row.ph }}</td>
-                <td>{{ row.n.toFixed(2) }}</td>
-                <td>{{ row.p.toFixed(2) }}</td>
-                <td>{{ row.k.toFixed(2) }}</td>
                 <td>
                   <span :class="['status-pill', row.status]">{{ row.status }}</span>
                 </td>
@@ -178,13 +155,14 @@ const error = ref('')
 const results = ref(null)
 const lastFile = ref(null)
 const history = ref([])
-const samples = ref([])
 const backendStatus = ref('checking')
+const formInputs = ref({
+  formula: '',
+  lotNumber: '',
+  threshold: 0.5
+})
 
 const filters = ref({
-  region: '',
-  district: '',
-  crop: '',
   lot: '',
   status: ''
 })
@@ -223,6 +201,7 @@ const backendStatusClass = computed(() => {
 const filteredHistory = computed(() =>
   history.value.filter((item) => {
     if (filters.value.status && item.status !== filters.value.status) return false
+    if (filters.value.lot && item.lot_number !== filters.value.lot) return false
     return true
   })
 )
@@ -257,12 +236,25 @@ const processLast = () => {
 }
 
 const processFile = async (file) => {
-  loading.value = true
   error.value = ''
   results.value = null
 
+  const thresholdValue = Number(formInputs.value.threshold)
+  if (!formInputs.value.lotNumber) {
+    error.value = 'Please enter a lot number before uploading.'
+    return
+  }
+  if (formInputs.value.threshold === '' || formInputs.value.threshold === null || Number.isNaN(thresholdValue)) {
+    error.value = 'Please enter a valid threshold percentage.'
+    return
+  }
+
+  loading.value = true
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('formula', formInputs.value.formula || '')
+  formData.append('lot_number', formInputs.value.lotNumber)
+  formData.append('threshold', thresholdValue)
 
   try {
     const res = await fetch(`${apiUrl}/upload`, { method: 'POST', body: formData })
@@ -288,18 +280,8 @@ const refreshHistory = async () => {
   }
 }
 
-const loadSamples = async () => {
-  try {
-    const res = await fetch(`${apiUrl}/samples`)
-    const data = await res.json()
-    samples.value = data.items || []
-  } catch {
-    samples.value = []
-  }
-}
-
 const resetFilters = () => {
-  filters.value = { region: '', district: '', crop: '', lot: '', status: '' }
+  filters.value = { lot: '', status: '' }
 }
 
 const acknowledge = () => {
@@ -323,6 +305,6 @@ const checkHealth = async () => {
 }
 
 onMounted(async () => {
-  await Promise.all([checkHealth(), refreshHistory(), loadSamples()])
+  await Promise.all([checkHealth(), refreshHistory()])
 })
 </script>

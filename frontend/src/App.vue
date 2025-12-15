@@ -1,13 +1,12 @@
 <template>
   <div class="page">
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark">QC</div>
-        <div>
-          <p class="brand-eyebrow">KOSA QC Data Interface</p>
-          <p class="brand-title">Fertilizer Quality Control</p>
+        <div class="brand">
+          <div class="brand-mark">QC</div>
+          <div>
+            <p class="brand-title">Fertilizer Quality Control</p>
+          </div>
         </div>
-      </div>
       <div class="top-actions">
         <span :class="['pill', backendStatusClass]">Backend: {{ backendLabel }}</span>
       </div>
@@ -41,7 +40,7 @@
                 <input v-model="formInputs.formula" placeholder="เช่น 15-15-15" />
               </div>
               <div class="field">
-                <label>Lot number*</label>
+                <label>Lot number</label>
                 <input v-model="formInputs.lotNumber" placeholder="ระบุ" />
               </div>
               <div class="field">
@@ -52,7 +51,7 @@
           </div>
 
           <div class="action-row">
-            <button class="primary" :disabled="loading" @click="processLast">Upload &amp; Segment</button>
+            <button class="primary" :disabled="loading" @click="processLast">วิเคราะห์คุณภาพ</button>
           </div>
 
           <div v-if="error" class="alert error">
@@ -240,21 +239,17 @@ const processFile = async (file) => {
   results.value = null
 
   const thresholdValue = Number(formInputs.value.threshold)
-  if (!formInputs.value.lotNumber) {
-    error.value = 'Please enter a lot number before uploading.'
-    return
-  }
-  if (formInputs.value.threshold === '' || formInputs.value.threshold === null || Number.isNaN(thresholdValue)) {
-    error.value = 'Please enter a valid threshold percentage.'
-    return
-  }
+  const safeThreshold =
+    formInputs.value.threshold === '' || formInputs.value.threshold === null || Number.isNaN(thresholdValue)
+      ? 0.5
+      : thresholdValue
 
   loading.value = true
   const formData = new FormData()
   formData.append('file', file)
   formData.append('formula', formInputs.value.formula || '')
-  formData.append('lot_number', formInputs.value.lotNumber)
-  formData.append('threshold', thresholdValue)
+  formData.append('lot_number', formInputs.value.lotNumber || '')
+  formData.append('threshold', safeThreshold)
 
   try {
     const res = await fetch(`${apiUrl}/upload`, { method: 'POST', body: formData })

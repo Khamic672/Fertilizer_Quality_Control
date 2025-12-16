@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 import io
 import base64
+import os
 from pathlib import Path
 import sys
 import torch
@@ -374,13 +375,16 @@ if __name__ == '__main__':
     initialize_models()
     
     # Start server
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "5000"))
+    display_host = "localhost" if host in ("0.0.0.0", "::") else host
     print("\n" + "="*50)
     print("Starting Flask server...")
-    print("API available at: http://localhost:5000")
+    print(f"API available at: http://{display_host}:{port}")
     print("="*50 + "\n")
     
     app.run(
-        host='0.0.0.0',
-        port=5000,
+        host=host,
+        port=port,
         debug=True
     )

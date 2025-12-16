@@ -21,15 +21,24 @@
       <section id="upload-card" class="card upload-card">
         <div class="upload-left">
           <div class="drop-area" @click="triggerFileSelect" @dragover.prevent @drop.prevent="onDrop">
-            <input ref="fileInput" type="file" accept="image/*" hidden @change="onFileChange" />
+            <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFileChange" />
             <div class="drop-inner">
               <div class="camera-icon">📷</div>
-              <p class="muted center">ถ่ายรูป หรืออัปโหลดรูปการผสมปุ๋ย</p>
+              <p class="muted center">ถ่ายรูป หรืออัปโหลดหลายรูปในล็อตเดียว</p>
             </div>
             <div class="upload-buttons">
               <button class="ghost pill-button">📷 ถ่ายรูป</button>
               <button class="ghost pill-button">⬆️ อัปโหลดรูป</button>
             </div>
+          </div>
+
+          <div class="input-card" v-if="selectedFiles.length">
+            <p class="section-label">รูปที่เลือก ({{ selectedFiles.length }})</p>
+            <ul class="muted">
+              <li v-for="file in selectedFiles" :key="file.name + file.size">
+                {{ file.name }} — {{ Math.round(file.size / 1024) }} KB
+              </li>
+            </ul>
           </div>
 
           <div class="input-card">
@@ -51,7 +60,7 @@
           </div>
 
           <div class="action-row">
-            <button class="primary" :disabled="loading" @click="processLast">วิเคราะห์คุณภาพ</button>
+            <button class="primary" :disabled="loading || !hasSelection" @click="processSelected">วิเคราะห์คุณภาพ</button>
           </div>
 
           <div v-if="error" class="alert error">
@@ -60,38 +69,94 @@
         </div>
 
         <div class="upload-results" v-if="results">
-          <div class="preview-card">
-            <img :src="results.segmentation || results.original" alt="preview" />
-          </div>
-          <div class="status-bars">
-            <div class="bar-row" v-for="metric in metrics" :key="metric.key">
-              <div class="bar-label">
-                <span>{{ metric.label }}</span>
-                <span>{{ metric.value.toFixed(2) }}</span>
-              </div>
-              <div class="bar-track">
-                <div
-                  class="bar-fill"
-                  :style="{
-                    width: metric.percent + '%',
-                    backgroundColor: metric.color
-                  }"
-                />
+          <template v-if="isBatchResult">
+            <div class="input-card">
+              <p class="section-label">สรุปล็อตเดียวกัน</p>
+              <p class="muted">
+                Lot: {{ batchSummary?.lot_number || '—' }} • สูตร: {{ batchSummary?.formula || '—' }} • Threshold:
+                {{ batchSummary?.threshold ?? '—' }}
+              </p>
+              <div class="summary-row">
+                <div>จำนวนรูป: {{ batchSummary?.total_images || 0 }}</div>
+                <div>ผ่าน: {{ batchSummary?.passed_images || 0 }}</div>
+                <div>
+                  <span :class="['status-pill', batchSummary?.status || 'ok']">{{ batchSummary?.status || 'ok' }}</span>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="checklist" :class="checklistTone">
-            <p class="checklist-title">
-              <span>{{ checklistTone === 'bad' ? 'Warnings' : 'Checklist' }}</span>
-              <button class="ghost small" @click="acknowledge">OK</button>
-            </p>
-            <ul>
-              <li v-for="item in statusList" :key="item.message" :class="item.level">
-                <span class="dot" />
-                <span>{{ item.message }}</span>
-              </li>
-            </ul>
-          </div>
+
+            <div class="batch-grid">
+              <div class="preview-card" v-for="(item, index) in batchItems" :key="(item.filename || index) + index">
+                <p class="section-label">{{ item.filename || `ภาพที่ ${index + 1}` }}</p>
+                <img :src="item.segmentation || item.original" alt="preview" />
+
+                <div class="status-bars">
+                  <div class="bar-row" v-for="metric in buildMetrics(item.npk)" :key="metric.key">
+                    <div class="bar-label">
+                      <span>{{ metric.label }}</span>
+                      <span>{{ metric.value.toFixed(2) }}</span>
+                    </div>
+                    <div class="bar-track">
+                      <div
+                        class="bar-fill"
+                        :style="{
+                          width: metric.percent + '%',
+                          backgroundColor: metric.color
+                        }"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="checklist mini" :class="statusTone(item.status_level)">
+                  <p class="checklist-title">
+                    <span>สถานะ</span>
+                  </p>
+                  <ul>
+                    <li v-for="status in item.status" :key="status.message" :class="status.level">
+                      <span class="dot" />
+                      <span>{{ status.message }}</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="preview-card">
+              <img :src="primaryResult?.segmentation || primaryResult?.original" alt="preview" />
+            </div>
+            <div class="status-bars">
+              <div class="bar-row" v-for="metric in metrics" :key="metric.key">
+                <div class="bar-label">
+                  <span>{{ metric.label }}</span>
+                  <span>{{ metric.value.toFixed(2) }}</span>
+                </div>
+                <div class="bar-track">
+                  <div
+                    class="bar-fill"
+                    :style="{
+                      width: metric.percent + '%',
+                      backgroundColor: metric.color
+                    }"
+                  />
+                </div>
+              </div>
+            </div>
+            <div class="checklist" :class="checklistTone">
+              <p class="checklist-title">
+                <span>{{ checklistTone === 'bad' ? 'Warnings' : 'Checklist' }}</span>
+                <button class="ghost small" @click="acknowledge">OK</button>
+              </p>
+              <ul>
+                <li v-for="item in statusList" :key="item.message" :class="item.level">
+                  <span class="dot" />
+                  <span>{{ item.message }}</span>
+                </li>
+              </ul>
+            </div>
+          </template>
         </div>
 
         <div v-else class="upload-results placeholder">
@@ -152,7 +217,7 @@ const fileInput = ref(null)
 const loading = ref(false)
 const error = ref('')
 const results = ref(null)
-const lastFile = ref(null)
+const selectedFiles = ref([])
 const history = ref([])
 const backendStatus = ref('checking')
 const formInputs = ref({
@@ -166,18 +231,50 @@ const filters = ref({
   status: ''
 })
 
-const metrics = computed(() => {
-  if (!results.value) return []
-  const npk = results.value.npk || { N: 0, P: 0, K: 0 }
-  const total = 30
-  return [
-    { key: 'n', label: 'N', value: npk.N, percent: Math.min(100, (npk.N / total) * 100), color: '#1f8f45' },
-    { key: 'p', label: 'P', value: npk.P, percent: Math.min(100, (npk.P / total) * 100), color: '#1f8f45' },
-    { key: 'k', label: 'K', value: npk.K, percent: Math.min(100, (npk.K / total) * 100), color: '#c0392b' }
-  ]
+const isBatchResult = computed(() => results.value?.mode === 'batch')
+const batchItems = computed(() => (isBatchResult.value ? results.value?.items || [] : []))
+const primaryResult = computed(() => {
+  if (isBatchResult.value) {
+    return batchItems.value[0] || null
+  }
+  return results.value
 })
 
-const statusList = computed(() => results.value?.status || [])
+const batchSummary = computed(() => {
+  if (isBatchResult.value) return results.value?.summary || null
+  if (!results.value) return null
+  const level = results.value.status_level || 'ok'
+  return {
+    total_images: 1,
+    passed_images: results.value.passed ? 1 : level === 'bad' ? 0 : 1,
+    status: level,
+    formula: results.value.inputs?.formula,
+    lot_number: results.value.inputs?.lot_number,
+    threshold: results.value.inputs?.threshold
+  }
+})
+
+const hasSelection = computed(() => selectedFiles.value.length > 0)
+
+const buildMetrics = (npk) => {
+  const values = npk || { N: 0, P: 0, K: 0 }
+  const total = 30
+  return [
+    { key: 'n', label: 'N', value: values.N, percent: Math.min(100, (values.N / total) * 100), color: '#1f8f45' },
+    { key: 'p', label: 'P', value: values.P, percent: Math.min(100, (values.P / total) * 100), color: '#1f8f45' },
+    { key: 'k', label: 'K', value: values.K, percent: Math.min(100, (values.K / total) * 100), color: '#c0392b' }
+  ]
+}
+
+const statusTone = (level) => {
+  if (level === 'bad') return 'bad'
+  if (level === 'warn') return 'warn'
+  return 'good'
+}
+
+const metrics = computed(() => buildMetrics(primaryResult.value?.npk))
+
+const statusList = computed(() => primaryResult.value?.status || [])
 const checklistTone = computed(() => {
   if (!statusList.value.length) return 'neutral'
   if (statusList.value.some((s) => s.level === 'bad')) return 'bad'
@@ -209,34 +306,34 @@ const triggerFileSelect = () => {
   if (fileInput.value) fileInput.value.click()
 }
 
-const onFileChange = (event) => {
-  const [file] = event.target.files
-  if (file) {
-    lastFile.value = file
-    processFile(file)
+const addFiles = (files) => {
+  const incoming = Array.from(files || []).filter((file) => file.type.startsWith('image/'))
+  if (!incoming.length) {
+    error.value = 'Please choose at least one image file.'
+    return
   }
+  results.value = null
+  selectedFiles.value = [...selectedFiles.value, ...incoming]
+  error.value = ''
+}
+
+const onFileChange = (event) => {
+  addFiles(event.target.files)
   event.target.value = ''
 }
 
 const onDrop = (event) => {
-  const [file] = event.dataTransfer.files
-  if (file) {
-    lastFile.value = file
-    processFile(file)
-  }
+  addFiles(event.dataTransfer.files)
 }
 
-const processLast = () => {
-  if (lastFile.value) {
-    processFile(lastFile.value)
-  } else {
-    error.value = 'Please choose a file first.'
-  }
-}
-
-const processFile = async (file) => {
+const processSelected = async () => {
   error.value = ''
   results.value = null
+
+  if (!selectedFiles.value.length) {
+    error.value = 'Please choose at least one image first.'
+    return
+  }
 
   const thresholdValue = Number(formInputs.value.threshold)
   const safeThreshold =
@@ -245,17 +342,24 @@ const processFile = async (file) => {
       : thresholdValue
 
   loading.value = true
+  const useBatch = selectedFiles.value.length > 1
   const formData = new FormData()
-  formData.append('file', file)
+  if (useBatch) {
+    selectedFiles.value.forEach((file) => formData.append('files', file))
+  } else {
+    formData.append('file', selectedFiles.value[0])
+  }
   formData.append('formula', formInputs.value.formula || '')
   formData.append('lot_number', formInputs.value.lotNumber || '')
   formData.append('threshold', safeThreshold)
 
   try {
-    const res = await fetch(`${apiUrl}/upload`, { method: 'POST', body: formData })
+    const endpoint = useBatch ? 'batch-upload' : 'upload'
+    const res = await fetch(`${apiUrl}/${endpoint}`, { method: 'POST', body: formData })
     const data = await res.json()
     if (!res.ok || !data.success) throw new Error(data.error || 'Processing failed')
-    results.value = data
+    results.value = { ...data, mode: useBatch ? 'batch' : 'single' }
+    selectedFiles.value = []
     await refreshHistory()
   } catch (err) {
     error.value = err.message

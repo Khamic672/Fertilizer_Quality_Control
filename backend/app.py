@@ -13,6 +13,7 @@ from pathlib import Path
 import sys
 import torch
 import datetime
+from history import append_history, load_history
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -34,6 +35,7 @@ npk_predictor = None
 device = None
 history_items = []
 sample_items = []
+history_counter = 0
 
 CHECKPOINT_DIR = Path(__file__).parent / "models"
 UNET_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
@@ -62,7 +64,7 @@ def initialize_models():
 
 def initialize_samples():
     """Seed sample gallery items."""
-    global sample_items, history_items
+    global sample_items, history_items, history_counter
     if sample_items:
         return
     sample_items = [
@@ -70,6 +72,12 @@ def initialize_samples():
         {"id": 2, "label": "Sample B", "image": generate_placeholder_base64((44, 92, 138))},
         {"id": 3, "label": "Sample C", "image": generate_placeholder_base64((80, 160, 90))},
     ]
+    loaded_history, max_id = load_history(limit=25)
+    if loaded_history:
+        history_items = loaded_history
+        history_counter = max_id
+        return
+
     history_items = [
         {
             "id": 1,
@@ -88,6 +96,7 @@ def initialize_samples():
             "status": "ok",
         }
     ]
+    history_counter = max(item["id"] for item in history_items)
 
 
 def preprocess_image(image_data):
@@ -171,6 +180,99 @@ def parse_float(value, default=None):
         return default
 
 
+def next_history_id():
+    """Incrementing ID for history rows (not limited to in-memory)."""
+    global history_counter
+    history_counter += 1
+    return history_counter
+
+
+
+def extract_common_inputs():
+    """Extract shared form/json inputs."""
+    form_payload = request.form or {}
+    json_payload = request.json if request.is_json else {}
+
+    formula = (
+        form_payload.get("formula")
+        or form_payload.get("npk")
+        or (json_payload or {}).get("formula")
+        or (json_payload or {}).get("npk")
+    )
+    lot_number = (
+        form_payload.get("lot_number")
+        or form_payload.get("lotNumber")
+        or (json_payload or {}).get("lot_number")
+        or (json_payload or {}).get("lotNumber")
+    )
+    threshold = parse_float(form_payload.get("threshold") or (json_payload or {}).get("threshold"))
+
+    return formula, lot_number, threshold
+
+
+def status_level_from_messages(status_messages):
+    """Map list of status messages to a single level."""
+    if any(s["level"] == "bad" for s in status_messages):
+        return "bad"
+    if any(s["level"] == "warn" for s in status_messages):
+        return "warn"
+    return "ok"
+
+
+def process_image_payload(image_payload):
+    """Run segmentation + NPK prediction for a single image payload."""
+    image_np = preprocess_image(image_payload)
+    mask = predict_segmentation(unet_model, image_np, device)
+    overlay = create_segmentation_overlay(image_np, mask)
+    npk_values = npk_predictor.predict(image_np, mask)
+    status_messages = build_status_messages(npk_values, int(np.sum(mask > 0)))
+    status_level = status_level_from_messages(status_messages)
+
+    return {
+        "filename": getattr(image_payload, "filename", "upload"),
+        "original": numpy_to_base64(image_np),
+        "segmentation": numpy_to_base64(overlay),
+        "npk": {
+            "N": float(npk_values["N"]),
+            "P": float(npk_values["P"]),
+            "K": float(npk_values["K"])
+        },
+        "status": status_messages,
+        "status_level": status_level,
+        "passed": status_level != "bad",
+        "metadata": {
+            "classes_detected": int(len(np.unique(mask)) - 1),
+            "pixels_analyzed": int(np.sum(mask > 0)),
+            "image_size": "1024x1024"
+        }
+    }
+
+
+def add_history_record(name, formula, lot_number, threshold, total_images, passed_images, avg_npk, status_level):
+    """Push a new history entry to the in-memory list."""
+    record_id = next_history_id()
+    record = {
+        "id": record_id,
+        "name": name or "upload",
+        "lot_number": lot_number or "N/A",
+        "formula": formula or "N/A",
+        "threshold": threshold,
+        "total_images": total_images,
+        "passed_images": passed_images,
+        "date": datetime.datetime.now().strftime("%Y-%m-%d"),
+        "moisture": round(np.random.uniform(8, 14), 2),
+        "ph": round(np.random.uniform(5.5, 7.5), 2),
+        "n": avg_npk["N"],
+        "p": avg_npk["P"],
+        "k": avg_npk["K"],
+        "status": status_level,
+    }
+    history_items.insert(0, record)
+    append_history(record)
+    if len(history_items) > 25:
+        history_items.pop()
+
+
 # ============================================================================
 # API ENDPOINTS
 # ============================================================================
@@ -241,86 +343,39 @@ def upload_and_process():
         }
     """
     try:
-        form_payload = request.form or {}
-        json_payload = request.json if request.is_json else {}
-
-        formula = (
-            form_payload.get("formula")
-            or form_payload.get("npk")
-            or (json_payload or {}).get("formula")
-            or (json_payload or {}).get("npk")
-        )
-        lot_number = (
-            form_payload.get("lot_number")
-            or form_payload.get("lotNumber")
-            or (json_payload or {}).get("lot_number")
-            or (json_payload or {}).get("lotNumber")
-        )
-        threshold = parse_float(form_payload.get("threshold") or (json_payload or {}).get("threshold"))
+        formula, lot_number, threshold = extract_common_inputs()
 
         # Get image from request
         if 'file' in request.files:
             file = request.files['file']
-            image_np = preprocess_image(file)
+            processed = process_image_payload(file)
         elif request.is_json and 'image' in request.json:
             image_data = request.json['image']
-            image_np = preprocess_image(image_data)
+            processed = process_image_payload(image_data)
         else:
             return jsonify({'error': 'No image provided'}), 400
-        
-        # Step 1: Segmentation
-        mask = predict_segmentation(unet_model, image_np, device)
-        
-        # Step 2: Create overlay
-        overlay = create_segmentation_overlay(image_np, mask)
-        
-        # Step 3: NPK Prediction
-        npk_values = npk_predictor.predict(image_np, mask)
-        status_messages = build_status_messages(npk_values, int(np.sum(mask > 0)))
-        
-        # Step 4: Prepare response
+
         response = {
             'success': True,
-            'original': numpy_to_base64(image_np),
-            'segmentation': numpy_to_base64(overlay),
-            'npk': {
-                'N': float(npk_values['N']),
-                'P': float(npk_values['P']),
-                'K': float(npk_values['K'])
-            },
+            'mode': 'single',
+            **processed,
             'inputs': {
                 'formula': formula,
                 'lot_number': lot_number,
                 'threshold': threshold
-            },
-            'status': status_messages,
-            'metadata': {
-                'classes_detected': int(len(np.unique(mask)) - 1),
-                'pixels_analyzed': int(np.sum(mask > 0)),
-                'image_size': '1024x1024'
             }
         }
-        
-        # Update in-memory history
-        passed = not any(s['level'] == 'bad' for s in status_messages)
-        history_items.insert(0, {
-            "id": len(history_items) + 1,
-            "name": request.files.get('file', type('obj', (object,), {'filename': 'upload.png'})()).filename if request.files else "upload",
-            "lot_number": lot_number or "N/A",
-            "formula": formula or "N/A",
-            "threshold": threshold,
-            "total_images": 1,
-            "passed_images": 1 if passed else 0,
-            "date": datetime.datetime.now().strftime("%Y-%m-%d"),
-            "moisture": round(np.random.uniform(8, 14), 2),
-            "ph": round(np.random.uniform(5.5, 7.5), 2),
-            "n": npk_values['N'],
-            "p": npk_values['P'],
-            "k": npk_values['K'],
-            "status": "bad" if any(s['level'] == 'bad' for s in status_messages) else ("warn" if any(s['level'] == 'warn' for s in status_messages) else "ok"),
-        })
-        if len(history_items) > 25:
-            history_items.pop()
+
+        add_history_record(
+            name=processed.get("filename"),
+            formula=formula,
+            lot_number=lot_number,
+            threshold=threshold,
+            total_images=1,
+            passed_images=1 if processed["passed"] else 0,
+            avg_npk=processed["npk"],
+            status_level=processed["status_level"],
+        )
 
         return jsonify(response)
     
@@ -335,26 +390,54 @@ def upload_and_process():
 def batch_upload():
     """Process multiple images at once"""
     try:
+        formula, lot_number, threshold = extract_common_inputs()
         files = request.files.getlist('files')
+
+        if not files:
+            return jsonify({'success': False, 'error': 'No files provided'}), 400
+
         results = []
-        
         for file in files:
-            image_np = preprocess_image(file)
-            mask = predict_segmentation(unet_model, image_np, device)
-            overlay = create_segmentation_overlay(image_np, mask)
-            npk_values = npk_predictor.predict(image_np, mask)
-            
-            results.append({
-                'filename': file.filename,
-                'npk': npk_values,
-                'classes_detected': int(len(np.unique(mask)) - 1)
-            })
-        
+            processed = process_image_payload(file)
+            results.append(processed)
+
+        status_level = (
+            "bad"
+            if any(item["status_level"] == "bad" for item in results)
+            else ("warn" if any(item["status_level"] == "warn" for item in results) else "ok")
+        )
+        passed_images = sum(1 for item in results if item["passed"])
+        avg_npk = {
+            "N": float(np.mean([item["npk"]["N"] for item in results])),
+            "P": float(np.mean([item["npk"]["P"] for item in results])),
+            "K": float(np.mean([item["npk"]["K"] for item in results])),
+        }
+
+        add_history_record(
+            name=files[0].filename or "batch upload",
+            formula=formula,
+            lot_number=lot_number,
+            threshold=threshold,
+            total_images=len(results),
+            passed_images=passed_images,
+            avg_npk=avg_npk,
+            status_level=status_level,
+        )
+
         return jsonify({
             'success': True,
-            'results': results
+            'mode': 'batch',
+            'items': results,
+            'summary': {
+                'total_images': len(results),
+                'passed_images': passed_images,
+                'status': status_level,
+                'formula': formula,
+                'lot_number': lot_number,
+                'threshold': threshold
+            }
         })
-    
+
     except Exception as e:
         return jsonify({
             'success': False,

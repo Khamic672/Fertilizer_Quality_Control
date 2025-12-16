@@ -148,6 +148,15 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
+.input-card ul.muted {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .section-label {
   margin: 0 0 8px;
   font-weight: 700;
@@ -285,6 +294,25 @@ body {
   gap: 12px;
 }
 
+.batch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.summary-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .upload-results.placeholder {
   justify-content: center;
   align-items: center;
@@ -347,6 +375,11 @@ body {
 .checklist.bad {
   background: #ffecec;
   border-color: #f2b2b2;
+}
+
+.checklist.mini {
+  background: #f9fbff;
+  border-color: #e0e6ef;
 }
 
 .checklist-title {

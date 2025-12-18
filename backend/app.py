@@ -8,11 +8,13 @@ from pathlib import Path
 import sys
 import datetime
 import io
+import csv
+from openpyxl import Workbook
 
 import numpy as np
 import torch
 from PIL import Image
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from history import append_history, load_history
 
@@ -37,6 +39,7 @@ device = None
 history_items = []
 sample_items = []
 history_counter = 0
+HISTORY_CSV = Path(__file__).parent / "history.csv"
 
 CHECKPOINT_DIR = Path(__file__).parent / "models"
 UNET_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
@@ -231,6 +234,48 @@ def evaluate_npk_against_threshold(predicted, target, threshold_percent):
     return "ok", f"NPK prediction within the {threshold}% threshold.", errors
 
 
+def parse_ddmmyyyy(date_str):
+    """Parse dd/mm/yyyy to a date object."""
+    try:
+        return datetime.datetime.strptime(date_str, "%d/%m/%Y").date()
+    except Exception:
+        raise ValueError("Invalid date format, use dd/mm/yyyy.")
+
+
+def load_history_full():
+    """Load all history rows from CSV without truncation."""
+    if not HISTORY_CSV.exists():
+        return []
+
+    rows = []
+    try:
+        with HISTORY_CSV.open("r", newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                rows.append(row)
+    except Exception as exc:
+        print(f"Warning: failed to read history for export ({exc})")
+    return rows
+
+
+def filter_history_by_date(rows, start_date=None, end_date=None):
+    """Filter rows whose date is between start_date and end_date (inclusive)."""
+    filtered = []
+    for row in rows:
+        raw_date = row.get("date")
+        try:
+            row_date = datetime.datetime.strptime(raw_date, "%Y-%m-%d").date()
+        except Exception:
+            continue
+
+        if start_date and row_date < start_date:
+            continue
+        if end_date and row_date > end_date:
+            continue
+        filtered.append(row)
+    return filtered
+
+
 def next_history_id():
     """Incrementing ID for history rows (not limited to in-memory)."""
     global history_counter
@@ -315,8 +360,6 @@ def add_history_record(name, formula, lot_number, threshold, total_images, passe
         "total_images": total_images,
         "passed_images": passed_images,
         "date": datetime.datetime.now().strftime("%Y-%m-%d"),
-        "moisture": round(np.random.uniform(8, 14), 2),
-        "ph": round(np.random.uniform(5.5, 7.5), 2),
         "n": avg_npk["N"],
         "p": avg_npk["P"],
         "k": avg_npk["K"],
@@ -367,6 +410,60 @@ def samples_api():
 def history_api():
     """Return processed history."""
     return jsonify({"items": history_items})
+
+
+@app.route('/api/history/export', methods=['GET'])
+def export_history_csv():
+    """Export filtered history as XLSX."""
+    start_raw = request.args.get("start")
+    end_raw = request.args.get("end")
+
+    try:
+        start_date = parse_ddmmyyyy(start_raw) if start_raw else None
+        end_date = parse_ddmmyyyy(end_raw) if end_raw else None
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    rows = load_history_full()
+    filtered = filter_history_by_date(rows, start_date, end_date)
+
+    if not filtered:
+        return jsonify({"success": False, "error": "No history found for the selected range."}), 404
+
+    filtered.sort(key=lambda r: r.get("date", ""))
+
+    # Create XLSX in-memory
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "History"
+
+    headers = list(filtered[0].keys()) if filtered else []
+    if headers:
+        ws.append(headers)
+        for row in filtered:
+            ws.append([row.get(h, "") for h in headers])
+
+    mem = io.BytesIO()
+    wb.save(mem)
+    mem.seek(0)
+
+    date_label = ""
+    if start_raw and end_raw:
+        date_label = f"{start_raw}_to_{end_raw}"
+    elif start_raw:
+        date_label = f"from_{start_raw}"
+    elif end_raw:
+        date_label = f"until_{end_raw}"
+    else:
+        date_label = "history"
+
+    filename = f"{date_label}.xlsx"
+    return send_file(
+        mem,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @app.route('/api/upload', methods=['POST'])

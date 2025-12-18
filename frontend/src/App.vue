@@ -175,7 +175,7 @@
       <section class="card history-card">
         <div class="history-head">
           <h3>ประวัติการวิเคราะห์</h3>
-          <button class="ghost icon-button">
+          <button class="ghost icon-button" @click="openExportModal">
             ↓ ดาวน์โหลด Excel
           </button>
         </div>
@@ -211,6 +211,35 @@
       </section>
     </main>
 
+    <div v-if="showExportModal" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-head">
+          <p class="modal-title">ดาวน์โหลดข้อมูลรายการเป็นไฟล์ Excel</p>
+          <button class="ghost small" @click="closeExportModal">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="modal-label">ระยะเวลาของข้อมูล*</label>
+          <div class="modal-row">
+            <div class="field">
+              <label>เริ่ม</label>
+              <input v-model="exportRange.start" type="date" />
+            </div>
+            <div class="field">
+              <label>สิ้นสุด</label>
+              <input v-model="exportRange.end" type="date" />
+            </div>
+          </div>
+          <p v-if="exportError" class="alert error small">{{ exportError }}</p>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost" @click="closeExportModal" :disabled="exporting">ยกเลิก</button>
+          <button class="primary" @click="downloadHistory" :disabled="exporting">
+            {{ exporting ? 'กำลังดาวน์โหลด...' : 'ยืนยัน' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <LoadingSpinner v-if="loading" />
   </div>
 </template>
@@ -224,6 +253,7 @@ const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
 const fileInput = ref(null)
 const loading = ref(false)
 const error = ref('')
+const exporting = ref(false)
 const results = ref(null)
 const selectedFiles = ref([])
 const history = ref([])
@@ -232,6 +262,12 @@ const formInputs = ref({
   formula: '',
   lotNumber: '',
   threshold: 0.5
+})
+const showExportModal = ref(false)
+const exportError = ref('')
+const exportRange = ref({
+  start: '',
+  end: ''
 })
 
 const filters = ref({
@@ -441,6 +477,57 @@ const checkHealth = async () => {
     backendStatus.value = data.models_loaded ? 'ok' : 'warn'
   } catch {
     backendStatus.value = 'error'
+  }
+}
+
+const openExportModal = () => {
+  exportError.value = ''
+  showExportModal.value = true
+}
+
+const closeExportModal = () => {
+  if (exporting.value) return
+  showExportModal.value = false
+  exportError.value = ''
+}
+
+const toBackendDate = (isoDate) => {
+  if (!isoDate) return ''
+  const [year, month, day] = isoDate.split('-')
+  return `${day}/${month}/${year}`
+}
+
+const downloadHistory = async () => {
+  exportError.value = ''
+  if (!exportRange.value.start || !exportRange.value.end) {
+    exportError.value = 'โปรดเลือกช่วงวันที่ครบถ้วน'
+    return
+  }
+
+  exporting.value = true
+  try {
+    const start = toBackendDate(exportRange.value.start)
+    const end = toBackendDate(exportRange.value.end)
+    const params = new URLSearchParams({ start, end })
+    const res = await fetch(`${apiUrl}/history/export?${params.toString()}`)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || 'ดาวน์โหลดไม่สำเร็จ')
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${start}_to_${end}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+    closeExportModal()
+  } catch (err) {
+    exportError.value = err.message
+  } finally {
+    exporting.value = false
   }
 }
 

@@ -22,6 +22,7 @@ dependencies = [
   "opencv-python-headless",
   "scikit-learn",
   "joblib",
+  "openpyxl",
   "matplotlib",
   "seaborn",
   "requests",

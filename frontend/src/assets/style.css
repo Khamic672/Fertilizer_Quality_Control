@@ -364,6 +364,62 @@ body {
   justify-self: start;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(25, 39, 52, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 200;
+  padding: 12px;
+}
+
+.modal-card {
+  background: #fff;
+  border-radius: 12px;
+  min-width: 320px;
+  max-width: 520px;
+  width: 100%;
+  padding: 16px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.18);
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.modal-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-label {
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .summary-row {
   display: flex;
   gap: 12px;

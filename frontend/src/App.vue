@@ -168,7 +168,7 @@
         </div>
 
         <div v-else class="upload-results placeholder">
-          <p class="muted">Results will appear here after processing.</p>
+          <p class="muted">ผลลัพธ์จะแสดงที่นี่เมื่อประมวลผลเสร็จ</p>
         </div>
       </section>
 

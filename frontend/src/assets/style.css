@@ -353,6 +353,10 @@ body {
 
 .preview-card img {
   width: 100%;
+  max-width: 560px;
+  max-height: 380px;
+  object-fit: contain;
+  margin: 0 auto;
   border-radius: 10px;
   border: 1px solid var(--border);
 }

@@ -2,17 +2,18 @@
 Flask Backend API for Fertilizer Quality Control
 Exposes endpoints for image processing and NPK prediction
 """
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import numpy as np
-from PIL import Image
-import io
 import base64
 import os
 from pathlib import Path
 import sys
-import torch
 import datetime
+import io
+
+import numpy as np
+import torch
+from PIL import Image
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 from history import append_history, load_history
 
 # Add src to path
@@ -180,6 +181,56 @@ def parse_float(value, default=None):
         return default
 
 
+def parse_npk_formula(formula: str):
+    """Parse NPK formula string (e.g., '15-15-15' or '15,15,15') into a dict."""
+    if not formula or not isinstance(formula, str):
+        raise ValueError("สูตรปุ๋ยที่ต้องการวิเคราะห์จำเป็นต้องระบุ (NPK required).")
+
+    separators = ["-", ",", " "]
+    parts = [formula]
+    for sep in separators:
+        if sep in formula:
+            parts = formula.replace(" ", "").split(sep) if sep != " " else formula.split()
+            break
+
+    if len(parts) != 3:
+        raise ValueError("ระบุสูตร NPK เป็นรูปแบบ N-P-K เช่น 15-15-15.")
+
+    try:
+        n, p, k = (float(x) for x in parts)
+    except ValueError as exc:
+        raise ValueError("สูตร NPK ต้องเป็นตัวเลข เช่น 15-15-15.") from exc
+
+    return {"N": n, "P": p, "K": k}
+
+
+def evaluate_npk_against_threshold(predicted, target, threshold_percent):
+    """
+    Compare predicted NPK values against target within the provided threshold (%).
+    Returns (status_level, message, errors_dict).
+    """
+    threshold = 0.5 if threshold_percent is None else float(threshold_percent)
+    errors = {}
+    exceeded = False
+
+    for key in ("N", "P", "K"):
+        pred_val = float(predicted.get(key, 0.0))
+        target_val = float(target.get(key, 0.0))
+
+        if target_val > 0:
+            diff = abs(pred_val - target_val) / target_val * 100.0
+        else:
+            diff = abs(pred_val - target_val)  # fallback to absolute diff when target is zero
+
+        errors[key] = diff
+        if diff > threshold:
+            exceeded = True
+
+    if exceeded:
+        return "bad", f"NPK prediction exceeds the {threshold}% threshold.", errors
+    return "ok", f"NPK prediction within the {threshold}% threshold.", errors
+
+
 def next_history_id():
     """Incrementing ID for history rows (not limited to in-memory)."""
     global history_counter
@@ -219,13 +270,15 @@ def status_level_from_messages(status_messages):
     return "ok"
 
 
-def process_image_payload(image_payload):
+def process_image_payload(image_payload, target_npk, threshold):
     """Run segmentation + NPK prediction for a single image payload."""
     image_np = preprocess_image(image_payload)
     mask = predict_segmentation(unet_model, image_np, device)
     overlay = create_segmentation_overlay(image_np, mask)
     npk_values = npk_predictor.predict(image_np, mask)
     status_messages = build_status_messages(npk_values, int(np.sum(mask > 0)))
+    threshold_level, threshold_message, npk_errors = evaluate_npk_against_threshold(npk_values, target_npk, threshold)
+    status_messages.append({"level": threshold_level, "message": threshold_message})
     status_level = status_level_from_messages(status_messages)
 
     return {
@@ -240,6 +293,8 @@ def process_image_payload(image_payload):
         "status": status_messages,
         "status_level": status_level,
         "passed": status_level != "bad",
+        "target_npk": target_npk,
+        "npk_errors": npk_errors,
         "metadata": {
             "classes_detected": int(len(np.unique(mask)) - 1),
             "pixels_analyzed": int(np.sum(mask > 0)),
@@ -344,14 +399,16 @@ def upload_and_process():
     """
     try:
         formula, lot_number, threshold = extract_common_inputs()
+        target_npk = parse_npk_formula(formula)
+        threshold_value = 0.5 if threshold is None else threshold
 
         # Get image from request
         if 'file' in request.files:
             file = request.files['file']
-            processed = process_image_payload(file)
+            processed = process_image_payload(file, target_npk, threshold_value)
         elif request.is_json and 'image' in request.json:
             image_data = request.json['image']
-            processed = process_image_payload(image_data)
+            processed = process_image_payload(image_data, target_npk, threshold_value)
         else:
             return jsonify({'error': 'No image provided'}), 400
 
@@ -361,8 +418,9 @@ def upload_and_process():
             **processed,
             'inputs': {
                 'formula': formula,
+                'target_npk': target_npk,
                 'lot_number': lot_number,
-                'threshold': threshold
+                'threshold': threshold_value
             }
         }
 
@@ -370,7 +428,7 @@ def upload_and_process():
             name=processed.get("filename"),
             formula=formula,
             lot_number=lot_number,
-            threshold=threshold,
+            threshold=threshold_value,
             total_images=1,
             passed_images=1 if processed["passed"] else 0,
             avg_npk=processed["npk"],
@@ -379,6 +437,8 @@ def upload_and_process():
 
         return jsonify(response)
     
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({
             'success': False,
@@ -391,6 +451,8 @@ def batch_upload():
     """Process multiple images at once"""
     try:
         formula, lot_number, threshold = extract_common_inputs()
+        target_npk = parse_npk_formula(formula)
+        threshold_value = 0.5 if threshold is None else threshold
         files = request.files.getlist('files')
 
         if not files:
@@ -398,7 +460,7 @@ def batch_upload():
 
         results = []
         for file in files:
-            processed = process_image_payload(file)
+            processed = process_image_payload(file, target_npk, threshold_value)
             results.append(processed)
 
         status_level = (
@@ -417,7 +479,7 @@ def batch_upload():
             name=files[0].filename or "batch upload",
             formula=formula,
             lot_number=lot_number,
-            threshold=threshold,
+            threshold=threshold_value,
             total_images=len(results),
             passed_images=passed_images,
             avg_npk=avg_npk,
@@ -434,10 +496,13 @@ def batch_upload():
                 'status': status_level,
                 'formula': formula,
                 'lot_number': lot_number,
-                'threshold': threshold
+                'threshold': threshold_value,
+                'target_npk': target_npk
             }
         })
 
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({
             'success': False,

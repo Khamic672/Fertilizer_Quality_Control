@@ -30,13 +30,19 @@
               <button class="ghost pill-button">📷 ถ่ายรูป</button>
               <button class="ghost pill-button">⬆️ อัปโหลดรูป</button>
             </div>
+            <div v-if="selectedFiles.length" class="preview-grid">
+              <div class="preview-thumb" v-for="fileItem in selectedFiles" :key="fileItem.file.name + fileItem.file.size">
+                <img :src="fileItem.preview" :alt="fileItem.file.name" />
+                <p class="thumb-name">{{ fileItem.file.name }}</p>
+              </div>
+            </div>
           </div>
 
           <div class="input-card" v-if="selectedFiles.length">
             <p class="section-label">รูปที่เลือก ({{ selectedFiles.length }})</p>
             <ul class="muted">
-              <li v-for="file in selectedFiles" :key="file.name + file.size">
-                {{ file.name }} — {{ Math.round(file.size / 1024) }} KB
+              <li v-for="fileItem in selectedFiles" :key="fileItem.file.name + fileItem.file.size">
+                {{ fileItem.file.name }} — {{ Math.round(fileItem.file.size / 1024) }} KB
               </li>
             </ul>
           </div>
@@ -208,7 +214,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import LoadingSpinner from './components/LoadingSpinner.vue'
 
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
@@ -255,6 +261,11 @@ const batchSummary = computed(() => {
 })
 
 const hasSelection = computed(() => selectedFiles.value.length > 0)
+
+const clearSelectedFiles = () => {
+  selectedFiles.value.forEach((item) => URL.revokeObjectURL(item.preview))
+  selectedFiles.value = []
+}
 
 const buildMetrics = (npk) => {
   const values = npk || { N: 0, P: 0, K: 0 }
@@ -307,13 +318,14 @@ const triggerFileSelect = () => {
 }
 
 const addFiles = (files) => {
-  const incoming = Array.from(files || []).filter((file) => file.type.startsWith('image/'))
-  if (!incoming.length) {
+  const incomingFiles = Array.from(files || []).filter((file) => file.type.startsWith('image/'))
+  if (!incomingFiles.length) {
     error.value = 'Please choose at least one image file.'
     return
   }
   results.value = null
-  selectedFiles.value = [...selectedFiles.value, ...incoming]
+  const newItems = incomingFiles.map((file) => ({ file, preview: URL.createObjectURL(file) }))
+  selectedFiles.value = [...selectedFiles.value, ...newItems]
   error.value = ''
 }
 
@@ -345,9 +357,9 @@ const processSelected = async () => {
   const useBatch = selectedFiles.value.length > 1
   const formData = new FormData()
   if (useBatch) {
-    selectedFiles.value.forEach((file) => formData.append('files', file))
+    selectedFiles.value.forEach(({ file }) => formData.append('files', file))
   } else {
-    formData.append('file', selectedFiles.value[0])
+    formData.append('file', selectedFiles.value[0].file)
   }
   formData.append('formula', formInputs.value.formula || '')
   formData.append('lot_number', formInputs.value.lotNumber || '')
@@ -359,7 +371,7 @@ const processSelected = async () => {
     const data = await res.json()
     if (!res.ok || !data.success) throw new Error(data.error || 'Processing failed')
     results.value = { ...data, mode: useBatch ? 'batch' : 'single' }
-    selectedFiles.value = []
+    clearSelectedFiles()
     await refreshHistory()
   } catch (err) {
     error.value = err.message
@@ -405,5 +417,9 @@ const checkHealth = async () => {
 
 onMounted(async () => {
   await Promise.all([checkHealth(), refreshHistory()])
+})
+
+onUnmounted(() => {
+  clearSelectedFiles()
 })
 </script>

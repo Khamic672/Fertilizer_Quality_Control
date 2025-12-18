@@ -91,41 +91,43 @@
               </div>
             </div>
 
-            <div class="batch-grid">
-              <div class="preview-card" v-for="(item, index) in batchItems" :key="(item.filename || index) + index">
-                <p class="section-label">{{ item.filename || `ภาพที่ ${index + 1}` }}</p>
-                <img :src="item.segmentation || item.original" alt="preview" />
+            <div class="carousel" v-if="activeResult">
+              <button class="nav-btn nav-btn--left" v-if="batchItems.length > 1" @click="prevItem">‹</button>
+              <div class="preview-card">
+                <p class="section-label">{{ activeResult.filename || `ภาพที่ ${activeIndex + 1}` }}</p>
+                <img :src="activeResult.segmentation || activeResult.original" alt="preview" />
+              </div>
+              <button class="nav-btn nav-btn--right" v-if="batchItems.length > 1" @click="nextItem">›</button>
+            </div>
 
-                <div class="status-bars">
-                  <div class="bar-row" v-for="metric in buildMetrics(item.npk)" :key="metric.key">
-                    <div class="bar-label">
-                      <span>{{ metric.label }}</span>
-                      <span>{{ metric.value.toFixed(2) }}</span>
-                    </div>
-                    <div class="bar-track">
-                      <div
-                        class="bar-fill"
-                        :style="{
-                          width: metric.percent + '%',
-                          backgroundColor: metric.color
-                        }"
-                      />
-                    </div>
-                  </div>
+            <div class="status-bars">
+              <div class="bar-row" v-for="metric in metrics" :key="metric.key">
+                <div class="bar-label">
+                  <span>{{ metric.label }}</span>
+                  <span>{{ metric.value.toFixed(2) }}</span>
                 </div>
-
-                <div class="checklist mini" :class="statusTone(item.status_level)">
-                  <p class="checklist-title">
-                    <span>สถานะ</span>
-                  </p>
-                  <ul>
-                    <li v-for="status in item.status" :key="status.message" :class="status.level">
-                      <span class="dot" />
-                      <span>{{ status.message }}</span>
-                    </li>
-                  </ul>
+                <div class="bar-track">
+                  <div
+                    class="bar-fill"
+                    :style="{
+                      width: metric.percent + '%',
+                      backgroundColor: metric.color
+                    }"
+                  />
                 </div>
               </div>
+            </div>
+
+            <div class="checklist mini" :class="statusTone(activeResult?.status_level)">
+              <p class="checklist-title">
+                <span>สถานะ</span>
+              </p>
+              <ul>
+                <li v-for="status in activeResult?.status || []" :key="status.message" :class="status.level">
+                  <span class="dot" />
+                  <span>{{ status.message }}</span>
+                </li>
+              </ul>
             </div>
           </template>
 
@@ -239,9 +241,10 @@ const filters = ref({
 
 const isBatchResult = computed(() => results.value?.mode === 'batch')
 const batchItems = computed(() => (isBatchResult.value ? results.value?.items || [] : []))
-const primaryResult = computed(() => {
+const activeIndex = ref(0)
+const activeResult = computed(() => {
   if (isBatchResult.value) {
-    return batchItems.value[0] || null
+    return batchItems.value[activeIndex.value] || batchItems.value[0] || null
   }
   return results.value
 })
@@ -267,13 +270,21 @@ const clearSelectedFiles = () => {
   selectedFiles.value = []
 }
 
-const buildMetrics = (npk) => {
+const buildMetrics = (npk, targetNpk, npkErrors, thresholdPercent) => {
   const values = npk || { N: 0, P: 0, K: 0 }
+  const threshold = thresholdPercent ?? 0.5
+
+  const colorFor = (key) => {
+    const diff = npkErrors && typeof npkErrors[key] === 'number' ? npkErrors[key] : null
+    if (diff === null) return '#1f8f45'
+    return diff <= threshold ? '#1f8f45' : '#c0392b'
+  }
+
   const total = 30
   return [
-    { key: 'n', label: 'N', value: values.N, percent: Math.min(100, (values.N / total) * 100), color: '#1f8f45' },
-    { key: 'p', label: 'P', value: values.P, percent: Math.min(100, (values.P / total) * 100), color: '#1f8f45' },
-    { key: 'k', label: 'K', value: values.K, percent: Math.min(100, (values.K / total) * 100), color: '#c0392b' }
+    { key: 'n', label: 'N', value: values.N, percent: Math.min(100, (values.N / total) * 100), color: colorFor('N') },
+    { key: 'p', label: 'P', value: values.P, percent: Math.min(100, (values.P / total) * 100), color: colorFor('P') },
+    { key: 'k', label: 'K', value: values.K, percent: Math.min(100, (values.K / total) * 100), color: colorFor('K') }
   ]
 }
 
@@ -283,9 +294,16 @@ const statusTone = (level) => {
   return 'good'
 }
 
-const metrics = computed(() => buildMetrics(primaryResult.value?.npk))
+const metrics = computed(() =>
+  buildMetrics(
+    activeResult.value?.npk,
+    activeResult.value?.target_npk || results.value?.inputs?.target_npk,
+    activeResult.value?.npk_errors,
+    results.value?.inputs?.threshold ?? results.value?.summary?.threshold
+  )
+)
 
-const statusList = computed(() => primaryResult.value?.status || [])
+const statusList = computed(() => activeResult.value?.status || [])
 const checklistTone = computed(() => {
   if (!statusList.value.length) return 'neutral'
   if (statusList.value.some((s) => s.level === 'bad')) return 'bad'
@@ -371,6 +389,7 @@ const processSelected = async () => {
     const data = await res.json()
     if (!res.ok || !data.success) throw new Error(data.error || 'Processing failed')
     results.value = { ...data, mode: useBatch ? 'batch' : 'single' }
+    activeIndex.value = 0
     clearSelectedFiles()
     await refreshHistory()
   } catch (err) {
@@ -402,6 +421,16 @@ const acknowledge = () => {
 const scrollToUpload = () => {
   const el = document.getElementById('upload-card')
   if (el) el.scrollIntoView({ behavior: 'smooth' })
+}
+
+const nextItem = () => {
+  if (!batchItems.value.length) return
+  activeIndex.value = (activeIndex.value + 1) % batchItems.value.length
+}
+
+const prevItem = () => {
+  if (!batchItems.value.length) return
+  activeIndex.value = (activeIndex.value - 1 + batchItems.value.length) % batchItems.value.length
 }
 
 const checkHealth = async () => {

@@ -11,6 +11,8 @@ Learn 2D-Segmentation.ipynb
 .gradio/
 checkpoints/
 soil_segment.egg-info/
+backend/models/*.pth
+backend/models/*.pkl
 
 
 # === OS files ===

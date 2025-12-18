@@ -9,6 +9,9 @@ Simple steps to run the app (Flask API + Vue frontend).
   - `best_model.pth`
   - `regression_model.pkl`
 
+## Model download
+- You can download the models from: https://drive.google.com/drive/folders/1KbrBNBra7BiPkGN_agqiyhIEKc8-egJq?usp=sharing
+
 ## Backend (API)
 From the repo root:
 ```bash

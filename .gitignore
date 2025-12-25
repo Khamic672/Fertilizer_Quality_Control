@@ -4,10 +4,9 @@ pictures/
 Learn 2D-Segmentation.ipynb
 *.jpg
 *.png
-*.html
 *.jpeg
-*.json
 *.csv
+*.pkl
 .gradio/
 checkpoints/
 soil_segment.egg-info/

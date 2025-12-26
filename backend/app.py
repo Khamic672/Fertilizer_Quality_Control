@@ -88,7 +88,7 @@ def initialize_samples():
             "name": "Lot A",
             "lot_number": "Lot A",
             "formula": "15-15-15",
-            "threshold": 0.5,
+            "threshold": 5,
             "total_images": 1,
             "passed_images": 1,
             "date": datetime.datetime.now().strftime("%Y-%m-%d"),
@@ -121,18 +121,19 @@ def preprocess_image(image_data):
 
 
 def create_segmentation_overlay(original, mask):
-    """Create colored overlay of segmentation using project palette."""
-    h, w = mask.shape
-    colored_mask = np.zeros((h, w, 3), dtype=np.uint8)
+    """Blend segmentation colors on top of the original image."""
+    base = original.astype(np.float32)
+    overlay = base.copy()
+    alpha = 0.45  # color opacity
 
     for class_id in np.unique(mask):
-        if class_id < len(CLASS_COLORS):
-            colored_mask[mask == class_id] = CLASS_COLORS[class_id]
+        if class_id == 0 or class_id >= len(CLASS_COLORS):
+            continue
+        class_mask = mask == class_id
+        color = np.array(CLASS_COLORS[class_id], dtype=np.float32)
+        overlay[class_mask] = base[class_mask] * (1 - alpha) + color * alpha
 
-    overlay = np.zeros_like(original)
-    overlay[mask > 0] = colored_mask[mask > 0]
-
-    return overlay
+    return overlay.astype(np.uint8)
 
 
 def numpy_to_base64(img_array):
@@ -212,7 +213,7 @@ def evaluate_npk_against_threshold(predicted, target, threshold_percent):
     Compare predicted NPK values against target within the provided threshold (%).
     Returns (status_level, message, errors_dict).
     """
-    threshold = 0.5 if threshold_percent is None else float(threshold_percent)
+    threshold = 5 if threshold_percent is None else float(threshold_percent)
     errors = {}
     exceeded = False
 
@@ -497,7 +498,7 @@ def upload_and_process():
     try:
         formula, lot_number, threshold = extract_common_inputs()
         target_npk = parse_npk_formula(formula)
-        threshold_value = 0.5 if threshold is None else threshold
+        threshold_value = 5 if threshold is None else threshold
 
         # Get image from request
         if 'file' in request.files:
@@ -549,7 +550,7 @@ def batch_upload():
     try:
         formula, lot_number, threshold = extract_common_inputs()
         target_npk = parse_npk_formula(formula)
-        threshold_value = 0.5 if threshold is None else threshold
+        threshold_value = 5 if threshold is None else threshold
         files = request.files.getlist('files')
 
         if not files:

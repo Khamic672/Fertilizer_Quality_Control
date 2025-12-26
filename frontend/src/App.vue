@@ -273,7 +273,7 @@ const videoRef = ref(null)
 const formInputs = ref({
   formula: '',
   lotNumber: '',
-  threshold: 0.5
+  threshold: 5
 })
 const showExportModal = ref(false)
 const exportError = ref('')
@@ -296,6 +296,8 @@ const activeResult = computed(() => {
   }
   return results.value
 })
+
+const primaryResult = computed(() => results.value)
 
 const batchSummary = computed(() => {
   if (isBatchResult.value) return results.value?.summary || null
@@ -320,7 +322,7 @@ const clearSelectedFiles = () => {
 
 const buildMetrics = (npk, targetNpk, npkErrors, thresholdPercent) => {
   const values = npk || { N: 0, P: 0, K: 0 }
-  const threshold = thresholdPercent ?? 0.5
+  const threshold = thresholdPercent ?? 5
 
   const colorFor = (key) => {
     const diff = npkErrors && typeof npkErrors[key] === 'number' ? npkErrors[key] : null
@@ -485,7 +487,7 @@ const processSelected = async () => {
   const thresholdValue = Number(formInputs.value.threshold)
   const safeThreshold =
     formInputs.value.threshold === '' || formInputs.value.threshold === null || Number.isNaN(thresholdValue)
-      ? 0.5
+      ? 5
       : thresholdValue
 
   loading.value = true

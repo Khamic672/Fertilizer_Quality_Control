@@ -198,6 +198,31 @@ body {
   justify-content: center;
 }
 
+.camera-preview {
+  margin-top: 12px;
+  border: 1px dashed #c9d5ec;
+  border-radius: 12px;
+  padding: 12px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.camera-preview video {
+  width: 100%;
+  max-height: 320px;
+  border-radius: 10px;
+  background: #000;
+  object-fit: cover;
+}
+
+.camera-controls {
+  display: flex;
+  gap: 8px;
+}
+
 .preview-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

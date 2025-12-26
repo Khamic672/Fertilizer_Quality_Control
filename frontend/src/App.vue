@@ -27,9 +27,18 @@
               <p class="muted center">ถ่ายรูป หรืออัปโหลดหลายรูปในล็อตเดียว</p>
             </div>
             <div class="upload-buttons">
-              <button class="ghost pill-button">📷 ถ่ายรูป</button>
-              <button class="ghost pill-button">⬆️ อัปโหลดรูป</button>
+              <button class="ghost pill-button" @click.stop="startCamera">📷 ถ่ายรูป</button>
+              <button class="ghost pill-button" @click.stop="triggerFileSelect">⬆️ อัปโหลดรูป</button>
             </div>
+            <div v-if="cameraActive" class="camera-preview">
+              <video ref="videoRef" autoplay playsinline muted></video>
+              <div class="camera-controls">
+                <button class="primary" @click.stop="capturePhoto">📸 ถ่ายภาพ</button>
+                <button class="ghost" @click.stop="stopCamera">ปิดกล้อง</button>
+              </div>
+              <p v-if="cameraError" class="alert error small">{{ cameraError }}</p>
+            </div>
+            <p v-else-if="cameraError" class="alert error small">{{ cameraError }}</p>
             <div v-if="selectedFiles.length" class="preview-grid">
               <div class="preview-thumb" v-for="fileItem in selectedFiles" :key="fileItem.file.name + fileItem.file.size">
                 <img :src="fileItem.preview" :alt="fileItem.file.name" />
@@ -258,6 +267,9 @@ const results = ref(null)
 const selectedFiles = ref([])
 const history = ref([])
 const backendStatus = ref('checking')
+const cameraActive = ref(false)
+const cameraError = ref('')
+const videoRef = ref(null)
 const formInputs = ref({
   formula: '',
   lotNumber: '',
@@ -371,16 +383,20 @@ const triggerFileSelect = () => {
   if (fileInput.value) fileInput.value.click()
 }
 
-const addFiles = (files) => {
-  const incomingFiles = Array.from(files || []).filter((file) => file.type.startsWith('image/'))
-  if (!incomingFiles.length) {
+const appendFiles = (files) => {
+  const validImages = (files || []).filter((file) => file.type.startsWith('image/'))
+  if (!validImages.length) {
     error.value = 'Please choose at least one image file.'
     return
   }
   results.value = null
-  const newItems = incomingFiles.map((file) => ({ file, preview: URL.createObjectURL(file) }))
+  const newItems = validImages.map((file) => ({ file, preview: URL.createObjectURL(file) }))
   selectedFiles.value = [...selectedFiles.value, ...newItems]
   error.value = ''
+}
+
+const addFiles = (files) => {
+  appendFiles(Array.from(files || []))
 }
 
 const onFileChange = (event) => {
@@ -390,6 +406,71 @@ const onFileChange = (event) => {
 
 const onDrop = (event) => {
   addFiles(event.dataTransfer.files)
+}
+
+let cameraStream = null
+
+const startCamera = async () => {
+  cameraError.value = ''
+  if (!navigator.mediaDevices?.getUserMedia) {
+    cameraError.value = 'เบราว์เซอร์ไม่รองรับการเปิดกล้อง'
+    return
+  }
+  try {
+    if (cameraStream) stopCamera()
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    cameraActive.value = true
+    if (videoRef.value) {
+      videoRef.value.srcObject = cameraStream
+      await videoRef.value.play().catch(() => {})
+    }
+  } catch (err) {
+    cameraError.value = err?.message || 'ไม่สามารถเปิดกล้องได้'
+    cameraActive.value = false
+    cameraStream = null
+  }
+}
+
+const stopCamera = () => {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach((track) => track.stop())
+    cameraStream = null
+  }
+  if (videoRef.value) {
+    videoRef.value.srcObject = null
+  }
+  cameraActive.value = false
+}
+
+const capturePhoto = () => {
+  cameraError.value = ''
+  const videoEl = videoRef.value
+  if (!videoEl || !cameraActive.value) {
+    cameraError.value = 'ยังไม่มีกล้องพร้อมใช้งาน'
+    return
+  }
+
+  const canvas = document.createElement('canvas')
+  const width = videoEl.videoWidth || 1024
+  const height = videoEl.videoHeight || 1024
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    cameraError.value = 'ไม่สามารถจับภาพได้'
+    return
+  }
+
+  ctx.drawImage(videoEl, 0, 0, width, height)
+  canvas.toBlob((blob) => {
+    if (!blob) {
+      cameraError.value = 'ไม่สามารถบันทึกภาพได้'
+      return
+    }
+    const file = new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' })
+    appendFiles([file])
+    stopCamera()
+  }, 'image/png')
 }
 
 const processSelected = async () => {
@@ -536,6 +617,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopCamera()
   clearSelectedFiles()
 })
 </script>

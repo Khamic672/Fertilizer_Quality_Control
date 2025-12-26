@@ -42,8 +42,8 @@ soil-segment-train = "soil_segment.unet_trainer:main"
 soil-segment-viz = "soil_segment.visualizer:main"
 
 [tool.setuptools]
-package-dir = {"" = "backend/src"}
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["backend/src"]
+where = ["src"]
 include = ["soil_segment*"]

@@ -19,12 +19,12 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 # Palette from DEFAULT_CLASS_COLORS in the original repo
 CLASS_COLORS = [
     (0, 0, 0),        # background - black
-    (220, 20, 60),    # Black_DAP - crimson
-    (178, 34, 34),    # Red_MOP - firebrick
-    (135, 206, 250),  # White_AMP - light sky blue
-    (255, 182, 193),  # White_Boron - light pink
-    (144, 238, 144),  # White_Mg - light green
-    (255, 215, 0),    # Yellow_Urea - gold
+    (45, 42, 50),     # Black_DAP - graphite
+    (225, 29, 72),    # Red_MOP - rose
+    (56, 189, 248),   # White_AMP - sky blue
+    (244, 114, 182),  # White_Boron - pink
+    (34, 197, 94),    # White_Mg - green
+    (245, 158, 11),   # Yellow_Urea - amber
 ]
 
 

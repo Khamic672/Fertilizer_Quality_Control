@@ -519,6 +519,54 @@ body {
   gap: 10px;
 }
 
+.mask-toggle {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.toggle-button.is-active {
+  background: var(--navy-strong);
+  border-color: var(--navy-strong);
+  color: white;
+}
+
+.mask-legend {
+  border: 1px dashed #d6deeb;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f9fbff;
+}
+
+.mask-legend__title {
+  margin: 0 0 8px;
+  font-weight: 700;
+  color: var(--navy-strong);
+  font-size: 13px;
+}
+
+.mask-legend__items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px 12px;
+}
+
+.mask-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.mask-legend__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  flex-shrink: 0;
+}
+
 .upload-results.placeholder {
   justify-content: center;
   align-items: center;

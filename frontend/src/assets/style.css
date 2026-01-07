@@ -119,6 +119,10 @@ body {
   cursor: pointer;
 }
 
+.drop-area--filled {
+  cursor: default;
+}
+
 .drop-inner {
   display: grid;
   place-items: center;
@@ -298,6 +302,21 @@ body {
   border-color: #e27f1a;
 }
 
+.ghost:disabled,
+.pill-button:disabled {
+  background: #f1f5fb;
+  border-color: #d6deeb;
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.ghost:disabled:hover,
+.pill-button:disabled:hover {
+  background: #f1f5fb;
+  border-color: #d6deeb;
+}
+
 .ghost:active,
 .primary:active,
 .pill-button:active {
@@ -353,6 +372,11 @@ body {
   justify-content: flex-end;
 }
 
+.action-row--split {
+  justify-content: space-between;
+  align-items: center;
+}
+
 .selectors select,
 .history-actions select {
   padding: 8px 10px;
@@ -394,6 +418,11 @@ body {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
+}
+
+.carousel--solo {
+  grid-template-columns: 1fr;
+  justify-items: center;
 }
 
 .nav-btn {

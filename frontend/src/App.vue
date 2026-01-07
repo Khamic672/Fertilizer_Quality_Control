@@ -20,17 +20,23 @@
 
       <section id="upload-card" class="card upload-card">
         <div class="upload-left">
-          <div class="drop-area" @click="triggerFileSelect" @dragover.prevent @drop.prevent="onDrop">
+          <div
+            class="drop-area"
+            :class="{ 'drop-area--filled': hasSelection }"
+            @click="handleDropAreaClick"
+            @dragover.prevent
+            @drop.prevent="onDrop"
+          >
             <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFileChange" />
-            <div class="drop-inner">
+            <div v-if="!hasSelection" class="drop-inner">
               <div class="camera-icon">📷</div>
               <p class="muted center">ถ่ายรูป หรืออัปโหลดหลายรูปในล็อตเดียว</p>
             </div>
-            <div class="upload-buttons">
+            <div v-if="!hasSelection" class="upload-buttons">
               <button class="ghost pill-button" @click.stop="startCamera">📷 ถ่ายรูป</button>
               <button class="ghost pill-button" @click.stop="triggerFileSelect">⬆️ อัปโหลดรูป</button>
             </div>
-            <div v-if="cameraActive" class="camera-preview">
+            <div v-if="cameraActive && !hasSelection" class="camera-preview">
               <video ref="videoRef" autoplay playsinline muted></video>
               <div class="camera-controls">
                 <button class="primary" @click.stop="capturePhoto">📸 ถ่ายภาพ</button>
@@ -38,12 +44,14 @@
               </div>
               <p v-if="cameraError" class="alert error small">{{ cameraError }}</p>
             </div>
-            <p v-else-if="cameraError" class="alert error small">{{ cameraError }}</p>
-            <div v-if="selectedFiles.length" class="preview-grid">
-              <div class="preview-thumb" v-for="fileItem in selectedFiles" :key="fileItem.file.name + fileItem.file.size">
-                <img :src="fileItem.preview" :alt="fileItem.file.name" />
-                <p class="thumb-name">{{ fileItem.file.name }}</p>
+            <p v-else-if="cameraError && !hasSelection" class="alert error small">{{ cameraError }}</p>
+            <div v-if="hasSelection" class="carousel" :class="{ 'carousel--solo': selectedFiles.length < 2 }">
+              <button class="nav-btn nav-btn--left" v-if="selectedFiles.length > 1" @click.stop="prevSelected">&lt;</button>
+              <div v-if="activeSelection" class="preview-thumb">
+                <img :src="activeSelection.preview" :alt="activeSelection.file.name" />
+                <p class="thumb-name">{{ activeSelection.file.name }}</p>
               </div>
+              <button class="nav-btn nav-btn--right" v-if="selectedFiles.length > 1" @click.stop="nextSelected">&gt;</button>
             </div>
           </div>
 
@@ -74,7 +82,8 @@
             </div>
           </div>
 
-          <div class="action-row">
+          <div class="action-row action-row--split">
+            <button class="ghost" :disabled="!hasSelection" @click="resetSelection">เลือกรูปใหม่</button>
             <button class="primary" :disabled="loading || !hasSelection" @click="processSelected">วิเคราะห์คุณภาพ</button>
           </div>
 
@@ -290,12 +299,15 @@ const filters = ref({
 const isBatchResult = computed(() => results.value?.mode === 'batch')
 const batchItems = computed(() => (isBatchResult.value ? results.value?.items || [] : []))
 const activeIndex = ref(0)
+const selectedPreviewIndex = ref(0)
 const activeResult = computed(() => {
   if (isBatchResult.value) {
     return batchItems.value[activeIndex.value] || batchItems.value[0] || null
   }
   return results.value
 })
+
+const activeSelection = computed(() => selectedFiles.value[selectedPreviewIndex.value] || selectedFiles.value[0] || null)
 
 const primaryResult = computed(() => results.value)
 
@@ -318,6 +330,15 @@ const hasSelection = computed(() => selectedFiles.value.length > 0)
 const clearSelectedFiles = () => {
   selectedFiles.value.forEach((item) => URL.revokeObjectURL(item.preview))
   selectedFiles.value = []
+  selectedPreviewIndex.value = 0
+}
+
+const resetSelection = () => {
+  stopCamera()
+  clearSelectedFiles()
+  results.value = null
+  error.value = ''
+  cameraError.value = ''
 }
 
 const buildMetrics = (npk, targetNpk, npkErrors, thresholdPercent) => {
@@ -385,7 +406,13 @@ const triggerFileSelect = () => {
   if (fileInput.value) fileInput.value.click()
 }
 
+const handleDropAreaClick = () => {
+  if (hasSelection.value) return
+  triggerFileSelect()
+}
+
 const appendFiles = (files) => {
+  if (hasSelection.value) return
   const validImages = (files || []).filter((file) => file.type.startsWith('image/'))
   if (!validImages.length) {
     error.value = 'Please choose at least one image file.'
@@ -402,17 +429,23 @@ const addFiles = (files) => {
 }
 
 const onFileChange = (event) => {
+  if (hasSelection.value) {
+    event.target.value = ''
+    return
+  }
   addFiles(event.target.files)
   event.target.value = ''
 }
 
 const onDrop = (event) => {
+  if (hasSelection.value) return
   addFiles(event.dataTransfer.files)
 }
 
 let cameraStream = null
 
 const startCamera = async () => {
+  if (hasSelection.value) return
   cameraError.value = ''
   if (!navigator.mediaDevices?.getUserMedia) {
     cameraError.value = 'เบราว์เซอร์ไม่รองรับการเปิดกล้อง'
@@ -550,6 +583,16 @@ const nextItem = () => {
 const prevItem = () => {
   if (!batchItems.value.length) return
   activeIndex.value = (activeIndex.value - 1 + batchItems.value.length) % batchItems.value.length
+}
+
+const nextSelected = () => {
+  if (!selectedFiles.value.length) return
+  selectedPreviewIndex.value = (selectedPreviewIndex.value + 1) % selectedFiles.value.length
+}
+
+const prevSelected = () => {
+  if (!selectedFiles.value.length) return
+  selectedPreviewIndex.value = (selectedPreviewIndex.value - 1 + selectedFiles.value.length) % selectedFiles.value.length
 }
 
 const checkHealth = async () => {

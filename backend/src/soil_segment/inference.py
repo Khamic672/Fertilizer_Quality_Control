@@ -2,6 +2,7 @@
 Inference utilities for segmentation.
 """
 
+import contextlib
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -107,9 +108,12 @@ def _run_model(model: torch.nn.Module, image_np: np.ndarray, device: torch.devic
     Run the model and return logits as numpy array [H, W, C].
     """
     tensor = preprocess_for_model(image_np, device)
-    use_autocast = device.type == "cuda"
     with torch.inference_mode():
-        with torch.cuda.amp.autocast(enabled=use_autocast):
+        if device.type == "cuda":
+            autocast_ctx = torch.amp.autocast("cuda")
+        else:
+            autocast_ctx = contextlib.nullcontext()
+        with autocast_ctx:
             logits = model(tensor)
     # Ensure output shape [B, C, H, W]
     if logits.ndim == 3:

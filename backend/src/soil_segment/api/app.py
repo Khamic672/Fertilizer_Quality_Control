@@ -6,7 +6,10 @@ import base64
 import csv
 import datetime
 import io
+import logging
 import os
+import time
+import uuid
 from openpyxl import Workbook
 
 import numpy as np
@@ -14,7 +17,8 @@ import torch
 from PIL import Image
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
-from soil_segment.config import HISTORY_FILE, MODELS_DIR
+from logging.handlers import RotatingFileHandler
+from soil_segment.config import HISTORY_FILE, INFERENCE_LOG_FILE, LOG_DIR, MODELS_DIR
 from soil_segment.storage import append_history, load_history
 
 from soil_segment.inference import (
@@ -27,6 +31,16 @@ from soil_segment.npk_predictor import NPKPredictor
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)  # Enable CORS for Vue frontend
+
+inference_logger = logging.getLogger("soil_segment.inference")
+if not inference_logger.handlers:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(INFERENCE_LOG_FILE, maxBytes=5_000_000, backupCount=3)
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    handler.setFormatter(formatter)
+    inference_logger.addHandler(handler)
+    inference_logger.setLevel(logging.INFO)
+    inference_logger.propagate = False
 
 # Global variables for models
 unet_model = None
@@ -314,6 +328,11 @@ def status_level_from_messages(status_messages):
 
 def process_image_payload(image_payload, target_npk, threshold):
     """Run segmentation + NPK prediction for a single image payload."""
+    inference_id = uuid.uuid4().hex
+    filename = getattr(image_payload, "filename", "upload")
+    start_time = time.perf_counter()
+    inference_logger.info("inference_start id=%s filename=%s", inference_id, filename)
+
     image_np = preprocess_image(image_payload)
     mask = predict_segmentation(unet_model, image_np, device)
     overlay = create_segmentation_overlay(image_np, mask)
@@ -322,9 +341,16 @@ def process_image_payload(image_payload, target_npk, threshold):
     threshold_level, threshold_message, npk_errors = evaluate_npk_against_threshold(npk_values, target_npk, threshold)
     status_messages.append({"level": threshold_level, "message": threshold_message})
     status_level = status_level_from_messages(status_messages)
+    duration_ms = (time.perf_counter() - start_time) * 1000.0
+    inference_logger.info(
+        "inference_end id=%s duration_ms=%.2f status=%s",
+        inference_id,
+        duration_ms,
+        status_level,
+    )
 
     return {
-        "filename": getattr(image_payload, "filename", "upload"),
+        "filename": filename,
         "original": numpy_to_base64(image_np),
         "segmentation": numpy_to_base64(overlay),
         "npk": {
@@ -532,8 +558,10 @@ def upload_and_process():
         return jsonify(response)
     
     except ValueError as e:
+        inference_logger.exception("inference_error type=value_error message=%s", str(e))
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
+        inference_logger.exception("inference_error type=server_error message=%s", str(e))
         return jsonify({
             'success': False,
             'error': str(e)
@@ -596,8 +624,10 @@ def batch_upload():
         })
 
     except ValueError as e:
+        inference_logger.exception("inference_error type=value_error message=%s", str(e))
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
+        inference_logger.exception("inference_error type=server_error message=%s", str(e))
         return jsonify({
             'success': False,
             'error': str(e)

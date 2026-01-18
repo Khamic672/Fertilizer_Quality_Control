@@ -3,7 +3,7 @@ Inference utilities for segmentation.
 """
 
 from pathlib import Path
-from typing import Tuple
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
@@ -27,17 +27,32 @@ CLASS_COLORS = [
     (245, 158, 11),   # Yellow_Urea - amber
 ]
 
+_NORMALIZATION_CACHE: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
 
-def preprocess_for_model(image_np: np.ndarray) -> torch.Tensor:
+
+def _normalization_tensors(device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+    key = str(device)
+    cached = _NORMALIZATION_CACHE.get(key)
+    if cached is not None:
+        return cached
+    mean = torch.tensor(IMAGENET_MEAN, device=device, dtype=torch.float32).view(1, 3, 1, 1)
+    std = torch.tensor(IMAGENET_STD, device=device, dtype=torch.float32).view(1, 3, 1, 1)
+    _NORMALIZATION_CACHE[key] = (mean, std)
+    return mean, std
+
+
+def preprocess_for_model(image_np: np.ndarray, device: torch.device) -> torch.Tensor:
     """
     Convert an RGB numpy image into a normalized torch tensor resized for the model.
     """
     tensor = torch.from_numpy(image_np).float() / 255.0  # [H, W, C]
     tensor = tensor.permute(2, 0, 1).unsqueeze(0)  # [1, C, H, W]
-    tensor = F.interpolate(tensor, size=(MODEL_SIZE, MODEL_SIZE), mode="bilinear", align_corners=False)
 
-    mean = torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1)
-    std = torch.tensor(IMAGENET_STD).view(1, 3, 1, 1)
+    if tensor.shape[-2:] != (MODEL_SIZE, MODEL_SIZE):
+        tensor = F.interpolate(tensor, size=(MODEL_SIZE, MODEL_SIZE), mode="bilinear", align_corners=False)
+
+    tensor = tensor.to(device, non_blocking=True)
+    mean, std = _normalization_tensors(device)
     tensor = (tensor - mean) / std
     return tensor
 
@@ -91,9 +106,11 @@ def _run_model(model: torch.nn.Module, image_np: np.ndarray, device: torch.devic
     """
     Run the model and return logits as numpy array [H, W, C].
     """
-    tensor = preprocess_for_model(image_np).to(device)
-    with torch.no_grad():
-        logits = model(tensor)
+    tensor = preprocess_for_model(image_np, device)
+    use_autocast = device.type == "cuda"
+    with torch.inference_mode():
+        with torch.cuda.amp.autocast(enabled=use_autocast):
+            logits = model(tensor)
     # Ensure output shape [B, C, H, W]
     if logits.ndim == 3:
         logits = logits.unsqueeze(0)

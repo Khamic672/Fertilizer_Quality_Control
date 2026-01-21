@@ -20,19 +20,19 @@
 
       <section id="upload-card" class="card upload-card">
         <div class="upload-left">
-          <div
+            <div
             class="drop-area"
-            :class="{ 'drop-area--filled': hasSelection }"
+            :class="{ 'drop-area--filled': hasSelection || cameraActive }"
             @click="handleDropAreaClick"
             @dragover.prevent
             @drop.prevent="onDrop"
           >
             <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFileChange" />
-            <div v-if="!hasSelection" class="drop-inner">
+            <div v-if="!hasSelection && !cameraActive" class="drop-inner">
               <div class="camera-icon">📷</div>
               <p class="muted center">ถ่ายรูป หรืออัปโหลดหลายรูปในล็อตเดียว</p>
             </div>
-            <div v-if="!hasSelection" class="upload-buttons">
+            <div v-if="!hasSelection && !cameraActive" class="upload-buttons">
               <button class="ghost pill-button" @click.stop="startCamera">📷 ถ่ายรูป</button>
               <button class="ghost pill-button" @click.stop="triggerFileSelect">⬆️ อัปโหลดรูป</button>
             </div>
@@ -298,7 +298,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import LoadingSpinner from './components/LoadingSpinner.vue'
 
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
@@ -459,7 +459,7 @@ const triggerFileSelect = () => {
 }
 
 const handleDropAreaClick = () => {
-  if (hasSelection.value) return
+  if (hasSelection.value || cameraActive.value) return
   triggerFileSelect()
 }
 
@@ -507,8 +507,14 @@ const startCamera = async () => {
     if (cameraStream) stopCamera()
     cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
     cameraActive.value = true
+    await nextTick()
     if (videoRef.value) {
       videoRef.value.srcObject = cameraStream
+      videoRef.value.muted = true
+      videoRef.value.playsInline = true
+      videoRef.value.onloadedmetadata = () => {
+        videoRef.value?.play().catch(() => {})
+      }
       await videoRef.value.play().catch(() => {})
     }
   } catch (err) {

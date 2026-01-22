@@ -7,6 +7,8 @@ Learn 2D-Segmentation.ipynb
 *.jpeg
 *.csv
 *.pkl
+*.onnx
+*.onnx.data
 .gradio/
 checkpoints/
 soil_segment.egg-info/

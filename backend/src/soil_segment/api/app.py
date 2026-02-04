@@ -8,6 +8,8 @@ import datetime
 import io
 import logging
 import os
+import sys
+import threading
 import time
 import uuid
 from openpyxl import Workbook
@@ -15,10 +17,16 @@ from openpyxl import Workbook
 import numpy as np
 import torch
 from PIL import Image
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, g, jsonify, request, send_file
 from flask_cors import CORS
 from logging.handlers import RotatingFileHandler
-from soil_segment.config import HISTORY_FILE, INFERENCE_LOG_FILE, LOG_DIR, MODELS_DIR
+from soil_segment.config import (
+    HISTORY_FILE,
+    INFERENCE_LOG_FILE,
+    LOG_DIR,
+    MODELS_DIR,
+    RUNTIME_LOG_FILE,
+)
 from soil_segment.storage import append_history, load_history
 
 from soil_segment.inference import (
@@ -45,6 +53,18 @@ if not inference_logger.handlers:
     inference_logger.setLevel(logging.INFO)
     inference_logger.propagate = False
 
+runtime_logger = logging.getLogger("soil_segment.runtime")
+if not runtime_logger.handlers:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    runtime_handler = RotatingFileHandler(RUNTIME_LOG_FILE, maxBytes=5_000_000, backupCount=3)
+    runtime_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    runtime_logger.addHandler(runtime_handler)
+    runtime_console = logging.StreamHandler()
+    runtime_console.setFormatter(logging.Formatter("%(message)s"))
+    runtime_logger.addHandler(runtime_console)
+    runtime_logger.setLevel(logging.INFO)
+    runtime_logger.propagate = False
+
 # Global variables for models
 unet_model = None
 npk_predictor = None
@@ -58,6 +78,58 @@ CHECKPOINT_DIR = MODELS_DIR
 UNET_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
 REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.pkl"
 TARGET_SIZE = (1024, 1024)
+APP_START_MONO = time.monotonic()
+_REQUEST_LOCK = threading.Lock()
+_REQUEST_COUNT = 0
+_REQUESTS_IN_FLIGHT = 0
+_ENDPOINT_COUNTS = {}
+
+
+def _record_endpoint_count(endpoint_name: str) -> int:
+    global _REQUEST_COUNT, _REQUESTS_IN_FLIGHT
+    with _REQUEST_LOCK:
+        _REQUEST_COUNT += 1
+        _REQUESTS_IN_FLIGHT += 1
+        _ENDPOINT_COUNTS[endpoint_name] = _ENDPOINT_COUNTS.get(endpoint_name, 0) + 1
+        return _ENDPOINT_COUNTS[endpoint_name]
+
+
+def _finish_request_count() -> int:
+    global _REQUESTS_IN_FLIGHT
+    with _REQUEST_LOCK:
+        _REQUESTS_IN_FLIGHT = max(0, _REQUESTS_IN_FLIGHT - 1)
+        return _REQUESTS_IN_FLIGHT
+
+
+def _memory_rss_mb() -> float:
+    """Best-effort RSS (MB) without optional deps."""
+    try:
+        if os.path.exists("/proc/self/statm"):
+            with open("/proc/self/statm", "r", encoding="utf-8") as handle:
+                parts = handle.read().strip().split()
+            if len(parts) > 1:
+                rss_pages = int(parts[1])
+                page_size = os.sysconf("SC_PAGE_SIZE")
+                return (rss_pages * page_size) / (1024 * 1024)
+    except Exception:
+        pass
+
+    try:
+        import resource
+
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        rss = float(usage.ru_maxrss)
+        if sys.platform == "darwin":
+            return rss / (1024 * 1024)
+        return rss / 1024.0
+    except Exception:
+        return 0.0
+
+
+def _request_size_bytes() -> int:
+    if request.content_length is not None:
+        return int(request.content_length)
+    return 0
 
 
 def initialize_models():
@@ -666,6 +738,69 @@ def run_dev():
         host=host,
         port=port,
         debug=True,
+    )
+
+
+@app.before_request
+def _log_request_start():
+    endpoint = request.endpoint or "unknown"
+    g.request_id = uuid.uuid4().hex
+    g.request_start = time.perf_counter()
+    g.request_cpu_start = time.process_time()
+    g.endpoint = endpoint
+    g.endpoint_count = _record_endpoint_count(endpoint)
+    runtime_logger.info(
+        "request_start id=%s method=%s path=%s endpoint=%s size_bytes=%s",
+        g.request_id,
+        request.method,
+        request.path,
+        endpoint,
+        _request_size_bytes(),
+    )
+
+
+@app.after_request
+def _log_request_end(response):
+    elapsed_s = time.perf_counter() - getattr(g, "request_start", time.perf_counter())
+    cpu_s = time.process_time() - getattr(g, "request_cpu_start", time.process_time())
+    in_flight = _finish_request_count()
+    uptime_s = time.monotonic() - APP_START_MONO
+    runtime_logger.info(
+        "request_end id=%s method=%s path=%s endpoint=%s status=%s duration_s=%.4f cpu_s=%.4f "
+        "uptime_s=%.1f rss_mb=%.1f in_flight=%s total_requests=%s endpoint_count=%s bytes_out=%s",
+        getattr(g, "request_id", "n/a"),
+        request.method,
+        request.path,
+        getattr(g, "endpoint", "unknown"),
+        response.status_code,
+        elapsed_s,
+        cpu_s,
+        uptime_s,
+        _memory_rss_mb(),
+        in_flight,
+        _REQUEST_COUNT,
+        getattr(g, "endpoint_count", 0),
+        response.content_length or 0,
+    )
+    g.request_count_finished = True
+    return response
+
+
+@app.teardown_request
+def _log_request_teardown(error=None):
+    if getattr(g, "request_count_finished", False):
+        return
+    if not hasattr(g, "request_start"):
+        return
+    in_flight = _finish_request_count()
+    runtime_logger.info(
+        "request_teardown id=%s method=%s path=%s endpoint=%s error=%s in_flight=%s",
+        getattr(g, "request_id", "n/a"),
+        request.method,
+        request.path,
+        getattr(g, "endpoint", "unknown"),
+        type(error).__name__ if error else "none",
+        in_flight,
     )
 
 

@@ -10,5 +10,13 @@ MODELS_DIR = BASE_DIR / "models"
 HISTORY_FILE = BASE_DIR / "history.csv"
 LOG_DIR = BASE_DIR / "logs"
 INFERENCE_LOG_FILE = LOG_DIR / "inference.log"
+RUNTIME_LOG_FILE = LOG_DIR / "runtime.log"
 
-__all__ = ["BASE_DIR", "MODELS_DIR", "HISTORY_FILE", "LOG_DIR", "INFERENCE_LOG_FILE"]
+__all__ = [
+    "BASE_DIR",
+    "MODELS_DIR",
+    "HISTORY_FILE",
+    "LOG_DIR",
+    "INFERENCE_LOG_FILE",
+    "RUNTIME_LOG_FILE",
+]

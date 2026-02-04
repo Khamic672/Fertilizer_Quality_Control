@@ -8,6 +8,7 @@ import datetime
 import io
 import logging
 import os
+import hashlib
 import sys
 import threading
 import time
@@ -83,6 +84,35 @@ _REQUEST_LOCK = threading.Lock()
 _REQUEST_COUNT = 0
 _REQUESTS_IN_FLIGHT = 0
 _ENDPOINT_COUNTS = {}
+_CACHE_LOCK = threading.Lock()
+_INFERENCE_CACHE = {}
+_INFERENCE_CACHE_ORDER = []
+_INFERENCE_CACHE_MAX_ITEMS = int(os.environ.get("INFERENCE_CACHE_MAX_ITEMS", "32"))
+_INFERENCE_CACHE_HITS = 0
+_INFERENCE_CACHE_MISSES = 0
+
+
+def _cache_get(key: str):
+    global _INFERENCE_CACHE_HITS, _INFERENCE_CACHE_MISSES
+    with _CACHE_LOCK:
+        if key not in _INFERENCE_CACHE:
+            _INFERENCE_CACHE_MISSES += 1
+            return None
+        _INFERENCE_CACHE_ORDER.remove(key)
+        _INFERENCE_CACHE_ORDER.append(key)
+        _INFERENCE_CACHE_HITS += 1
+        return _INFERENCE_CACHE[key]
+
+
+def _cache_set(key: str, value: dict) -> None:
+    with _CACHE_LOCK:
+        if key in _INFERENCE_CACHE:
+            _INFERENCE_CACHE_ORDER.remove(key)
+        _INFERENCE_CACHE[key] = value
+        _INFERENCE_CACHE_ORDER.append(key)
+        while len(_INFERENCE_CACHE_ORDER) > _INFERENCE_CACHE_MAX_ITEMS:
+            oldest = _INFERENCE_CACHE_ORDER.pop(0)
+            _INFERENCE_CACHE.pop(oldest, None)
 
 
 def _record_endpoint_count(endpoint_name: str) -> int:
@@ -195,6 +225,8 @@ def preprocess_image(image_data):
         # Base64 encoded
         image_bytes = base64.b64decode(image_data.split(',')[1])
         image = Image.open(io.BytesIO(image_bytes))
+    elif isinstance(image_data, (bytes, bytearray)):
+        image = Image.open(io.BytesIO(image_data))
     else:
         # File object
         image = Image.open(image_data)
@@ -406,37 +438,62 @@ def process_image_payload(image_payload, target_npk, threshold):
     inference_id = uuid.uuid4().hex
     filename = getattr(image_payload, "filename", "upload")
     start_time = time.perf_counter()
+    image_hash = None
     inference_logger.info("image_processing_start id=%s filename=%s", inference_id, filename)
     status_level = "error"
     try:
-        image_np = preprocess_image(image_payload)
-        mask = predict_segmentation(unet_model, image_np, device)
-        overlay = create_segmentation_overlay(image_np, mask)
-        npk_values = npk_predictor.predict(image_np, mask)
-        status_messages = build_status_messages(npk_values, int(np.sum(mask > 0)))
-        threshold_level, threshold_message, npk_errors = evaluate_npk_against_threshold(npk_values, target_npk, threshold)
+        if isinstance(image_payload, str):
+            image_bytes = base64.b64decode(image_payload.split(",", 1)[1])
+        else:
+            image_bytes = image_payload.read()
+        image_hash = hashlib.sha256(image_bytes).hexdigest()
+
+        cached = _cache_get(image_hash)
+        if cached is None:
+            image_np = preprocess_image(image_bytes)
+            mask = predict_segmentation(unet_model, image_np, device)
+            overlay = create_segmentation_overlay(image_np, mask)
+            npk_values = npk_predictor.predict(image_np, mask)
+            mask_pixels = int(np.sum(mask > 0))
+            cached = {
+                "original": numpy_to_base64(image_np),
+                "segmentation": numpy_to_base64(overlay),
+                "npk": {
+                    "N": float(npk_values["N"]),
+                    "P": float(npk_values["P"]),
+                    "K": float(npk_values["K"]),
+                },
+                "metadata": {
+                    "classes_detected": int(len(np.unique(mask)) - 1),
+                    "pixels_analyzed": mask_pixels,
+                    "image_size": "1024x1024",
+                },
+            }
+            _cache_set(image_hash, cached)
+            inference_logger.info("inference_cache miss image_hash=%s", image_hash)
+        else:
+            inference_logger.info("inference_cache hit image_hash=%s", image_hash)
+
+        status_messages = build_status_messages(cached["npk"], cached["metadata"]["pixels_analyzed"])
+        threshold_level, threshold_message, npk_errors = evaluate_npk_against_threshold(
+            cached["npk"],
+            target_npk,
+            threshold,
+        )
         status_messages.append({"level": threshold_level, "message": threshold_message})
         status_level = status_level_from_messages(status_messages)
 
         return {
             "filename": filename,
-            "original": numpy_to_base64(image_np),
-            "segmentation": numpy_to_base64(overlay),
-            "npk": {
-                "N": float(npk_values["N"]),
-                "P": float(npk_values["P"]),
-                "K": float(npk_values["K"])
-            },
+            "original": cached["original"],
+            "segmentation": cached["segmentation"],
+            "npk": cached["npk"],
             "status": status_messages,
             "status_level": status_level,
             "passed": status_level != "bad",
             "target_npk": target_npk,
             "npk_errors": npk_errors,
-            "metadata": {
-                "classes_detected": int(len(np.unique(mask)) - 1),
-                "pixels_analyzed": int(np.sum(mask > 0)),
-                "image_size": "1024x1024"
-            }
+            "metadata": cached["metadata"],
         }
     finally:
         duration_s = time.perf_counter() - start_time

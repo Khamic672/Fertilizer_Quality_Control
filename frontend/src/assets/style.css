@@ -331,6 +331,17 @@ body {
   cursor: not-allowed;
 }
 
+.danger {
+  background: #fff3f3;
+  border-color: #f2b2b2;
+  color: #b94c4c;
+}
+
+.danger:hover {
+  background: #ffecec;
+  border-color: #ef9c9c;
+}
+
 .pill-button {
   background: #f1f5fb;
   border-color: #d6deeb;
@@ -391,6 +402,11 @@ body {
 .alert {
   border-radius: 8px;
   padding: 10px;
+}
+
+.alert.small {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .alert.error {
@@ -690,6 +706,71 @@ body {
   align-items: center;
 }
 
+.filter-menu {
+  position: relative;
+}
+
+.icon-circle {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f5fb;
+  border-color: #c6d0e2;
+  color: var(--navy-strong);
+}
+
+.icon-circle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-circle:hover {
+  background: #e2eaf7;
+  border-color: #c0cce3;
+}
+
+.icon-circle--active {
+  box-shadow: 0 0 0 2px rgba(192, 204, 227, 0.35);
+}
+
+.filter-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 160px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  z-index: 10;
+}
+
+.filter-option {
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-weight: 600;
+  color: var(--navy-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.filter-option:hover {
+  background: #eef3fb;
+}
+
+.filter-option.active {
+  background: #e2eaf7;
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -697,6 +778,17 @@ body {
   font-weight: 600;
   color: var(--orange);
   border-color: var(--orange);
+}
+
+.sort-button {
+  color: var(--navy-strong);
+  border-color: #c6d0e2;
+  background: #f1f5fb;
+}
+
+.sort-button:hover {
+  background: #e2eaf7;
+  border-color: #c0cce3;
 }
 
 .table-wrapper {
@@ -721,6 +813,11 @@ td {
   padding: 10px;
   text-align: left;
   border-bottom: 1px solid var(--border);
+}
+
+.actions-col {
+  text-align: center;
+  width: 110px;
 }
 
 tbody tr:nth-child(every) {

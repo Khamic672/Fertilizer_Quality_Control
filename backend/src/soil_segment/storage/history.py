@@ -98,3 +98,34 @@ def append_history(record):
             })
     except Exception as exc:
         print(f"Warning: failed to write history CSV: {exc}")
+
+
+def delete_history_by_id(record_id):
+    """Delete a history record by ID. Returns True if a row was removed."""
+    if not HISTORY_FILE.exists():
+        return False
+
+    try:
+        kept_rows = []
+        deleted = False
+        with HISTORY_FILE.open("r", newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                row_id = row.get("id")
+                if row_id and str(row_id) == str(record_id):
+                    deleted = True
+                    continue
+                kept_rows.append(row)
+
+        if not deleted:
+            return False
+
+        with HISTORY_FILE.open("w", newline="") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=HISTORY_FIELDS)
+            writer.writeheader()
+            for row in kept_rows:
+                writer.writerow({field: row.get(field, "") for field in HISTORY_FIELDS})
+        return True
+    except Exception as exc:
+        print(f"Warning: failed to delete history CSV row: {exc}")
+        return False

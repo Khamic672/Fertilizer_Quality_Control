@@ -212,10 +212,65 @@
       <section class="card history-card">
         <div class="history-head">
           <h3>ประวัติการวิเคราะห์</h3>
-          <button class="ghost icon-button" @click="openExportModal">
-            ↓ ดาวน์โหลด Excel
-          </button>
+          <div class="history-actions">
+            <div ref="filterMenuRef" class="filter-menu">
+              <button
+                class="ghost icon-circle"
+                :class="{ 'icon-circle--active': filterMenuOpen }"
+                @click="toggleFilterMenu"
+                aria-label="กรองผลตรวจ"
+                :aria-expanded="filterMenuOpen"
+                type="button"
+              >
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M3 5h18l-7 8v5l-4 2v-7L3 5z" fill="currentColor" />
+                </svg>
+              </button>
+              <div v-if="filterMenuOpen" class="filter-popover" role="menu">
+                <button
+                  class="filter-option"
+                  :class="{ active: !filters.status }"
+                  @click="setStatusFilter('')"
+                  type="button"
+                >
+                  ทั้งหมด
+                </button>
+                <button
+                  class="filter-option"
+                  :class="{ active: filters.status === 'ok' }"
+                  @click="setStatusFilter('ok')"
+                  type="button"
+                >
+                  OK (ผ่าน)
+                </button>
+                <button
+                  class="filter-option"
+                  :class="{ active: filters.status === 'warn' }"
+                  @click="setStatusFilter('warn')"
+                  type="button"
+                >
+                  WARN (เตือน)
+                </button>
+                <button
+                  class="filter-option"
+                  :class="{ active: filters.status === 'bad' }"
+                  @click="setStatusFilter('bad')"
+                  type="button"
+                >
+                  BAD (ไม่ผ่าน)
+                </button>
+              </div>
+            </div>
+            <button class="ghost icon-button sort-button" @click="cycleSort">
+              ↕️ เรียงตาม: {{ sortLabel }}
+            </button>
+            <button class="ghost icon-button" @click="openExportModal">
+              ↓ ดาวน์โหลด Excel
+            </button>
+          </div>
         </div>
+
+        <p v-if="historyError" class="alert error small">{{ historyError }}</p>
 
         <div class="table-wrapper">
           <table>
@@ -228,10 +283,11 @@
                 <th>จำนวนรูปที่ผ่าน</th>
                 <th>วันที่ตรวจสอบ</th>
                 <th>ผลตรวจ</th>
+                <th class="actions-col">จัดการ</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in filteredHistory" :key="row.id">
+              <tr v-for="row in sortedHistory" :key="row.id">
                 <td>{{ row.formula || '—' }}</td>
                 <td>{{ row.lot_number || row.name }}</td>
                 <td>{{ row.threshold != null ? row.threshold + '%' : '—' }}</td>
@@ -240,6 +296,15 @@
                 <td>{{ row.date }}</td>
                 <td>
                   <span :class="['status-pill', row.status]">{{ row.status }}</span>
+                </td>
+                <td class="actions-col">
+                  <button
+                    class="ghost danger small"
+                    :disabled="deletingIds.has(row.id)"
+                    @click="deleteHistory(row)"
+                  >
+                    {{ deletingIds.has(row.id) ? 'กำลังลบ...' : 'ลบ' }}
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -309,6 +374,18 @@ const exportRange = ref({
   start: '',
   end: ''
 })
+const historyError = ref('')
+const deletingIds = ref(new Set())
+const sortMode = ref('date_desc')
+const filterMenuOpen = ref(false)
+const filterMenuRef = ref(null)
+
+const sortOptions = [
+  { value: 'date_desc', label: 'วันที่ล่าสุด' },
+  { value: 'date_asc', label: 'วันที่เก่าสุด' },
+  { value: 'lot_asc', label: 'Lot A → Z' },
+  { value: 'lot_desc', label: 'Lot Z → A' }
+]
 
 const filters = ref({
   lot: '',
@@ -446,6 +523,31 @@ const filteredHistory = computed(() =>
     return true
   })
 )
+
+const sortedHistory = computed(() => {
+  const rows = [...filteredHistory.value]
+  const mode = sortMode.value
+  const dateValue = (row) => {
+    const time = Date.parse(row?.date || '')
+    return Number.isNaN(time) ? 0 : time
+  }
+  if (mode === 'date_desc') {
+    rows.sort((a, b) => dateValue(b) - dateValue(a) || (b.id || 0) - (a.id || 0))
+  } else if (mode === 'date_asc') {
+    rows.sort((a, b) => dateValue(a) - dateValue(b) || (a.id || 0) - (b.id || 0))
+  } else if (mode === 'lot_asc') {
+    rows.sort((a, b) =>
+      String(a.lot_number || a.name || '').localeCompare(String(b.lot_number || b.name || ''))
+    )
+  } else if (mode === 'lot_desc') {
+    rows.sort((a, b) =>
+      String(b.lot_number || b.name || '').localeCompare(String(a.lot_number || a.name || ''))
+    )
+  }
+  return rows
+})
+
+const sortLabel = computed(() => sortOptions.find((option) => option.value === sortMode.value)?.label || 'วันที่ล่าสุด')
 
 const triggerFileSelect = () => {
   if (fileInput.value) fileInput.value.click()
@@ -617,6 +719,65 @@ const resetFilters = () => {
   filters.value = { lot: '', status: '' }
 }
 
+const cycleSort = () => {
+  const currentIndex = sortOptions.findIndex((option) => option.value === sortMode.value)
+  const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % sortOptions.length
+  sortMode.value = sortOptions[nextIndex].value
+}
+
+const toggleFilterMenu = () => {
+  filterMenuOpen.value = !filterMenuOpen.value
+}
+
+const closeFilterMenu = () => {
+  filterMenuOpen.value = false
+}
+
+const setStatusFilter = (value) => {
+  filters.value.status = value
+  closeFilterMenu()
+}
+
+const handleOutsideFilterClick = (event) => {
+  if (!filterMenuOpen.value) return
+  const target = event.target
+  if (filterMenuRef.value && target instanceof Node && !filterMenuRef.value.contains(target)) {
+    closeFilterMenu()
+  }
+}
+
+const setDeleting = (id, isDeleting) => {
+  const next = new Set(deletingIds.value)
+  if (isDeleting) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  deletingIds.value = next
+}
+
+const deleteHistory = async (row) => {
+  if (!row?.id) return
+  historyError.value = ''
+  const label = row.lot_number || row.name || row.id
+  const confirmed = window.confirm(`ลบข้อมูล Lot ${label} ใช่หรือไม่?`)
+  if (!confirmed) return
+
+  setDeleting(row.id, true)
+  try {
+    const res = await fetch(`${apiUrl}/history/${row.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}))
+      throw new Error(payload.error || 'ลบข้อมูลไม่สำเร็จ')
+    }
+    history.value = history.value.filter((item) => item.id !== row.id)
+  } catch (err) {
+    historyError.value = err.message
+  } finally {
+    setDeleting(row.id, false)
+  }
+}
+
 const acknowledge = () => {
   // No-op placeholder for UI parity
 }
@@ -709,10 +870,12 @@ const downloadHistory = async () => {
 }
 
 onMounted(async () => {
+  document.addEventListener('click', handleOutsideFilterClick)
   await Promise.all([checkHealth(), refreshHistory()])
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', handleOutsideFilterClick)
   stopCamera()
   clearSelectedFiles()
 })

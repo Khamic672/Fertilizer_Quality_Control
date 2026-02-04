@@ -27,7 +27,7 @@ from soil_segment.config import (
     MODELS_DIR,
     RUNTIME_LOG_FILE,
 )
-from soil_segment.storage import append_history, load_history
+from soil_segment.storage import append_history, delete_history_by_id, load_history
 
 from soil_segment.inference import (
     CLASS_COLORS,
@@ -474,6 +474,22 @@ def health_check():
 def history_api():
     """Return processed history."""
     return jsonify({"items": history_items})
+
+
+@app.route('/api/history/<int:record_id>', methods=['DELETE'])
+def delete_history_item(record_id):
+    """Delete a history record by ID."""
+    global history_items
+    existing = next((item for item in history_items if item.get("id") == record_id), None)
+    if not existing:
+        return jsonify({"success": False, "error": "History record not found."}), 404
+
+    history_items = [item for item in history_items if item.get("id") != record_id]
+    persisted = delete_history_by_id(record_id)
+    if not persisted and HISTORY_CSV.exists():
+        runtime_logger.warning("History delete failed for id=%s (CSV not updated)", record_id)
+
+    return jsonify({"success": True, "persisted": persisted})
 
 
 @app.route('/api/history/export', methods=['GET'])

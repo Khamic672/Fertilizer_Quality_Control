@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from .config import SEGMENTATION_QUANTIZATION
 from .model import DummySegmenter, SimpleUNet
 
 # Match the 2D-soil-segment repo defaults
@@ -29,6 +30,53 @@ CLASS_COLORS = [
 ]
 
 _NORMALIZATION_CACHE: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
+_QUANTIZABLE_MODULES = (torch.nn.Linear, torch.nn.LSTM, torch.nn.GRU)
+_SUPPORTED_QUANTIZATION_MODES = {"none", "dynamic"}
+
+
+def _has_quantizable_modules(model: torch.nn.Module) -> bool:
+    for module in model.modules():
+        if isinstance(module, _QUANTIZABLE_MODULES):
+            return True
+    return False
+
+
+def _apply_dynamic_quantization(model: torch.nn.Module) -> torch.nn.Module:
+    try:
+        from torch.ao.quantization import quantize_dynamic
+    except Exception:
+        try:
+            from torch.quantization import quantize_dynamic
+        except Exception as exc:  # pragma: no cover - fallback path
+            print(f"Dynamic quantization unavailable ({exc}).")
+            return model
+    return quantize_dynamic(model, set(_QUANTIZABLE_MODULES), dtype=torch.qint8)
+
+
+def _maybe_quantize_model(
+    model: torch.nn.Module, device: torch.device, mode: str
+) -> torch.nn.Module:
+    if not mode or mode == "none":
+        return model
+    if mode not in _SUPPORTED_QUANTIZATION_MODES:
+        print(f"Unknown quantization mode '{mode}'. Skipping quantization.")
+        return model
+    if device.type != "cpu":
+        print("Quantization requested but device is not CPU. Skipping quantization.")
+        return model
+    if isinstance(model, torch.jit.ScriptModule):
+        print("Quantization requested for TorchScript model. Skipping quantization.")
+        return model
+    if not _has_quantizable_modules(model):
+        print("Quantization requested but no quantizable modules found. Skipping quantization.")
+        return model
+    try:
+        quantized = _apply_dynamic_quantization(model)
+    except Exception as exc:
+        print(f"Failed to apply dynamic quantization ({exc}). Using float model.")
+        return model
+    print("Applied dynamic quantization (qint8) to CPU model.")
+    return quantized
 
 
 def _normalization_tensors(device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -73,11 +121,14 @@ def load_segmentation_model(checkpoint_path: str, device: torch.device) -> torch
     """
     Load a segmentation model checkpoint. Falls back to a dummy model if loading fails.
     """
+    quant_mode = SEGMENTATION_QUANTIZATION
     path = Path(checkpoint_path)
     if not path.exists():
         print(f"Checkpoint not found at {path}. Using dummy segmenter.")
         model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
         model.to(device)
+        model.eval()
+        model = _maybe_quantize_model(model, device, quant_mode)
         model.eval()
         return model
 
@@ -94,11 +145,15 @@ def load_segmentation_model(checkpoint_path: str, device: torch.device) -> torch
             _load_state_dict(model, checkpoint)
         model.to(device)
         model.eval()
+        model = _maybe_quantize_model(model, device, quant_mode)
+        model.eval()
         return model
     except Exception as exc:
         print(f"Failed to load checkpoint ({exc}). Using dummy segmenter.")
         model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
         model.to(device)
+        model.eval()
+        model = _maybe_quantize_model(model, device, quant_mode)
         model.eval()
         return model
 

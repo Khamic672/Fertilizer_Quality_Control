@@ -18,17 +18,9 @@ dependencies = [
   "numpy<2.3.0",
   "Pillow",
   "torch",
-  "torchvision",
-  "opencv-python-headless",
   "scikit-learn==1.7.2",
   "joblib",
   "openpyxl",
-  "matplotlib",
-  "seaborn",
-  "requests",
-  "tqdm",
-  "gradio",
-  "roboflow",
   "tomli; python_version < \"3.11\"",
 ]
 
@@ -36,10 +28,10 @@ dependencies = [
 dev = [
   "pytest>=7.0",
 ]
-
-[project.scripts]
-soil-segment-train = "soil_segment.unet_trainer:main"
-soil-segment-viz = "soil_segment.visualizer:main"
+onnx = [
+  "onnx",
+  "onnxruntime",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

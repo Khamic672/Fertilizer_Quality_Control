@@ -521,17 +521,6 @@ body {
   gap: 10px;
 }
 
-.mask-toggle {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.toggle-button.is-active {
-  background: var(--navy-strong);
-  border-color: var(--navy-strong);
-  color: white;
-}
 
 .mask-legend {
   border: 1px dashed #d6deeb;

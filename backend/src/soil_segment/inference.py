@@ -10,11 +10,22 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .config import SEGMENTATION_QUANTIZATION
+from .config import (
+    SEGMENTATION_MODEL_SIZE,
+    SEGMENTATION_ONNX_CALIBRATION_DIR,
+    SEGMENTATION_ONNX_CALIBRATION_SAMPLES,
+    SEGMENTATION_ONNX_EXPORT,
+    SEGMENTATION_ONNX_INT8_PATH,
+    SEGMENTATION_ONNX_OPSET,
+    SEGMENTATION_ONNX_PATH,
+    SEGMENTATION_ONNX_QUANTIZE,
+    SEGMENTATION_QUANTIZATION,
+    SEGMENTATION_RUNTIME,
+)
 from .model import DummySegmenter, SimpleUNet
 
-# Match the 2D-soil-segment repo defaults
-MODEL_SIZE = 1024
+# Match the 2D-soil-segment repo defaults (override via SEGMENTATION_MODEL_SIZE)
+MODEL_SIZE = SEGMENTATION_MODEL_SIZE
 DEFAULT_NUM_CLASSES = 7
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -32,6 +43,9 @@ CLASS_COLORS = [
 _NORMALIZATION_CACHE: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
 _QUANTIZABLE_MODULES = (torch.nn.Linear, torch.nn.LSTM, torch.nn.GRU)
 _SUPPORTED_QUANTIZATION_MODES = {"none", "dynamic"}
+_SUPPORTED_RUNTIMES = {"torch", "onnx"}
+_SUPPORTED_ONNX_EXPORT_MODES = {"auto", "always", "never"}
+_SUPPORTED_ONNX_QUANTIZE_MODES = {"none", "int8"}
 
 
 def _has_quantizable_modules(model: torch.nn.Module) -> bool:
@@ -79,6 +93,19 @@ def _maybe_quantize_model(
     return quantized
 
 
+class OrtSegmenter:
+    """Wrapper for ONNX Runtime sessions to align with torch inference."""
+
+    def __init__(self, session, input_name: str, output_name: str):
+        self.session = session
+        self.input_name = input_name
+        self.output_name = output_name
+
+    def run(self, input_array: np.ndarray) -> np.ndarray:
+        outputs = self.session.run([self.output_name], {self.input_name: input_array})
+        return outputs[0]
+
+
 def _normalization_tensors(device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
     key = str(device)
     cached = _NORMALIZATION_CACHE.get(key)
@@ -106,29 +133,12 @@ def preprocess_for_model(image_np: np.ndarray, device: torch.device) -> torch.Te
     return tensor
 
 
-def _load_state_dict(model: torch.nn.Module, checkpoint: dict) -> None:
-    state_dict = checkpoint
-    if isinstance(checkpoint, dict):
-        state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
-    if missing:
-        print(f"Warning: missing keys when loading checkpoint: {missing}")
-    if unexpected:
-        print(f"Warning: unexpected keys when loading checkpoint: {unexpected}")
-
-
-def load_segmentation_model(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
-    """
-    Load a segmentation model checkpoint. Falls back to a dummy model if loading fails.
-    """
-    quant_mode = SEGMENTATION_QUANTIZATION
+def _load_torch_model(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
     path = Path(checkpoint_path)
     if not path.exists():
         print(f"Checkpoint not found at {path}. Using dummy segmenter.")
         model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
         model.to(device)
-        model.eval()
-        model = _maybe_quantize_model(model, device, quant_mode)
         model.eval()
         return model
 
@@ -145,23 +155,235 @@ def load_segmentation_model(checkpoint_path: str, device: torch.device) -> torch
             _load_state_dict(model, checkpoint)
         model.to(device)
         model.eval()
-        model = _maybe_quantize_model(model, device, quant_mode)
-        model.eval()
         return model
     except Exception as exc:
         print(f"Failed to load checkpoint ({exc}). Using dummy segmenter.")
         model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
         model.to(device)
         model.eval()
-        model = _maybe_quantize_model(model, device, quant_mode)
-        model.eval()
         return model
 
 
-def _run_model(model: torch.nn.Module, image_np: np.ndarray, device: torch.device) -> np.ndarray:
+def _export_onnx_model(model: torch.nn.Module, onnx_path: Path, opset: int) -> bool:
+    try:
+        onnx_path.parent.mkdir(parents=True, exist_ok=True)
+        model_cpu = model.to(torch.device("cpu"))
+        model_cpu.eval()
+        dummy_input = torch.zeros(1, 3, MODEL_SIZE, MODEL_SIZE, dtype=torch.float32)
+        torch.onnx.export(
+            model_cpu,
+            dummy_input,
+            str(onnx_path),
+            input_names=["input"],
+            output_names=["logits"],
+            opset_version=opset,
+            do_constant_folding=True,
+            dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
+        )
+        return True
+    except Exception as exc:
+        print(f"Failed to export ONNX model ({exc}).")
+        return False
+
+
+def _collect_calibration_images(calibration_dir: str, limit: int) -> list[Path]:
+    if not calibration_dir:
+        return []
+    base = Path(calibration_dir)
+    if not base.exists():
+        return []
+    if base.is_file():
+        if base.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}:
+            return [base]
+        return []
+    image_paths: list[Path] = []
+    for ext in ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff"):
+        image_paths.extend(base.rglob(ext))
+    image_paths = sorted(image_paths)
+    if limit > 0:
+        image_paths = image_paths[:limit]
+    return image_paths
+
+
+def _quantize_onnx_int8(
+    onnx_path: Path,
+    int8_path: Path,
+    calibration_dir: str,
+    max_samples: int,
+) -> bool:
+    try:
+        import onnxruntime as ort
+        from onnxruntime.quantization import (
+            CalibrationDataReader,
+            QuantFormat,
+            QuantType,
+            quantize_static,
+        )
+    except Exception as exc:
+        print(f"ONNX Runtime quantization unavailable ({exc}).")
+        return False
+
+    image_paths = _collect_calibration_images(calibration_dir, max_samples)
+    if not image_paths:
+        print("No calibration images found; skipping INT8 quantization.")
+        return False
+
+    try:
+        session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        input_name = session.get_inputs()[0].name
+    except Exception:
+        input_name = "input"
+
+    class _ImageCalibrationDataReader(CalibrationDataReader):
+        def __init__(self, paths: list[Path], name: str):
+            self.paths = paths
+            self.input_name = name
+            self._iter = None
+
+        def get_next(self):
+            if self._iter is None:
+                self._iter = iter(self._iter_data())
+            return next(self._iter, None)
+
+        def _iter_data(self):
+            from PIL import Image
+
+            for path in self.paths:
+                try:
+                    img = Image.open(path).convert("RGB")
+                    image_np = np.array(img)
+                except Exception:
+                    continue
+                tensor = preprocess_for_model(image_np, torch.device("cpu"))
+                yield {self.input_name: tensor.cpu().numpy()}
+
+    data_reader = _ImageCalibrationDataReader(image_paths, input_name)
+    try:
+        int8_path.parent.mkdir(parents=True, exist_ok=True)
+        quantize_static(
+            model_input=str(onnx_path),
+            model_output=str(int8_path),
+            calibration_data_reader=data_reader,
+            quant_format=QuantFormat.QDQ,
+            activation_type=QuantType.QInt8,
+            weight_type=QuantType.QInt8,
+            per_channel=True,
+        )
+        return True
+    except Exception as exc:
+        print(f"Failed to quantize ONNX model ({exc}).")
+        return False
+
+
+def _load_ort_model(onnx_path: Path) -> OrtSegmenter | None:
+    try:
+        import onnxruntime as ort
+    except Exception as exc:
+        print(f"ONNX Runtime not available ({exc}).")
+        return None
+    try:
+        sess_options = ort.SessionOptions()
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        session = ort.InferenceSession(str(onnx_path), sess_options, providers=["CPUExecutionProvider"])
+        input_name = session.get_inputs()[0].name
+        output_name = session.get_outputs()[0].name
+        return OrtSegmenter(session, input_name, output_name)
+    except Exception as exc:
+        print(f"Failed to create ONNX Runtime session ({exc}).")
+        return None
+
+
+def _load_state_dict(model: torch.nn.Module, checkpoint: dict) -> None:
+    state_dict = checkpoint
+    if isinstance(checkpoint, dict):
+        state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    if missing:
+        print(f"Warning: missing keys when loading checkpoint: {missing}")
+    if unexpected:
+        print(f"Warning: unexpected keys when loading checkpoint: {unexpected}")
+
+
+def load_segmentation_model(
+    checkpoint_path: str, device: torch.device
+) -> torch.nn.Module | OrtSegmenter:
+    """
+    Load a segmentation model checkpoint or ONNX Runtime session. Falls back to a dummy model if loading fails.
+    """
+    quant_mode = SEGMENTATION_QUANTIZATION
+    runtime = SEGMENTATION_RUNTIME
+    if runtime not in _SUPPORTED_RUNTIMES:
+        print(f"Unknown runtime '{runtime}'. Falling back to torch.")
+        runtime = "torch"
+
+    if runtime == "onnx":
+        export_mode = SEGMENTATION_ONNX_EXPORT
+        if export_mode not in _SUPPORTED_ONNX_EXPORT_MODES:
+            print(f"Unknown ONNX export mode '{export_mode}'. Using 'auto'.")
+            export_mode = "auto"
+
+        quantize_mode = SEGMENTATION_ONNX_QUANTIZE
+        if quantize_mode not in _SUPPORTED_ONNX_QUANTIZE_MODES:
+            print(f"Unknown ONNX quantization mode '{quantize_mode}'. Using 'none'.")
+            quantize_mode = "none"
+
+        onnx_path: Path | None = SEGMENTATION_ONNX_PATH
+        int8_path = SEGMENTATION_ONNX_INT8_PATH
+
+        exported = False
+        should_export = export_mode == "always" or (
+            export_mode == "auto" and not onnx_path.exists()
+        )
+        if should_export:
+            torch_model = _load_torch_model(checkpoint_path, torch.device("cpu"))
+            if _export_onnx_model(torch_model, onnx_path, SEGMENTATION_ONNX_OPSET):
+                exported = True
+            else:
+                onnx_path = None
+
+        if export_mode == "never" and (onnx_path is None or not onnx_path.exists()):
+            print("ONNX export disabled and no ONNX model found.")
+            onnx_path = None
+
+        if onnx_path is not None and onnx_path.exists():
+            model_path = onnx_path
+            if quantize_mode == "int8":
+                if exported or not int8_path.exists():
+                    if _quantize_onnx_int8(
+                        onnx_path,
+                        int8_path,
+                        SEGMENTATION_ONNX_CALIBRATION_DIR,
+                        SEGMENTATION_ONNX_CALIBRATION_SAMPLES,
+                    ):
+                        model_path = int8_path
+                else:
+                    model_path = int8_path
+            ort_model = _load_ort_model(model_path)
+            if ort_model is not None:
+                return ort_model
+
+        print("Falling back to torch model.")
+
+    model = _load_torch_model(checkpoint_path, device)
+    model = _maybe_quantize_model(model, device, quant_mode)
+    model.eval()
+    return model
+
+
+def _run_model(
+    model: torch.nn.Module | OrtSegmenter, image_np: np.ndarray, device: torch.device
+) -> np.ndarray:
     """
     Run the model and return logits as numpy array [H, W, C].
     """
+    if isinstance(model, OrtSegmenter):
+        tensor = preprocess_for_model(image_np, torch.device("cpu"))
+        logits_np = model.run(tensor.cpu().numpy())
+        if logits_np.ndim == 3:
+            logits_np = np.expand_dims(logits_np, axis=0)
+        logits_np = logits_np[0]  # [C, H, W]
+        return np.transpose(logits_np, (1, 2, 0))  # [H, W, C]
+
     tensor = preprocess_for_model(image_np, device)
     with torch.inference_mode():
         if device.type == "cuda":
@@ -177,7 +399,9 @@ def _run_model(model: torch.nn.Module, image_np: np.ndarray, device: torch.devic
     return np.transpose(logits_np, (1, 2, 0))  # [H, W, C]
 
 
-def predict_segmentation(model: torch.nn.Module, image_np: np.ndarray, device: torch.device) -> np.ndarray:
+def predict_segmentation(
+    model: torch.nn.Module | OrtSegmenter, image_np: np.ndarray, device: torch.device
+) -> np.ndarray:
     """
     Generate a mask with integer labels from the segmentation model.
     Background is label 0.

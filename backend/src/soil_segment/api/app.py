@@ -12,7 +12,6 @@ import hashlib
 import sys
 import threading
 import time
-import uuid
 from openpyxl import Workbook
 
 import numpy as np
@@ -71,7 +70,6 @@ unet_model = None
 npk_predictor = None
 device = None
 history_items = []
-sample_items = []
 history_counter = 0
 HISTORY_CSV = HISTORY_FILE
 
@@ -178,44 +176,20 @@ def initialize_models():
     npk_predictor = NPKPredictor(str(REGRESSION_CHECKPOINT))
     
     print("All models loaded successfully.")
-    initialize_samples()
+    initialize_history()
 
 
-def initialize_samples():
-    """Seed sample gallery items."""
-    global sample_items, history_items, history_counter
-    if sample_items:
-        return
-    sample_items = [
-        {"id": 1, "label": "Sample A", "image": generate_placeholder_base64()},
-        {"id": 2, "label": "Sample B", "image": generate_placeholder_base64((44, 92, 138))},
-        {"id": 3, "label": "Sample C", "image": generate_placeholder_base64((80, 160, 90))},
-    ]
+def initialize_history():
+    """Load history items for API responses."""
+    global history_items, history_counter
     loaded_history, max_id = load_history(limit=25)
     if loaded_history:
         history_items = loaded_history
         history_counter = max_id
         return
 
-    history_items = [
-        {
-            "id": 1,
-            "name": "Lot A",
-            "lot_number": "Lot A",
-            "formula": "15-15-15",
-            "threshold": 5,
-            "total_images": 1,
-            "passed_images": 1,
-            "date": datetime.datetime.now().strftime("%Y-%m-%d"),
-            "moisture": 10.0,
-            "ph": 6.7,
-            "n": 12.3,
-            "p": 6.1,
-            "k": 7.9,
-            "status": "ok",
-        }
-    ]
-    history_counter = max(item["id"] for item in history_items)
+    history_items = []
+    history_counter = 0
 
 
 def preprocess_image(image_data):
@@ -260,38 +234,6 @@ def numpy_to_base64(img_array):
     img.save(buffer, format='PNG')
     img_str = base64.b64encode(buffer.getvalue()).decode()
     return f"data:image/png;base64,{img_str}"
-
-
-def generate_placeholder_base64(color=(242, 140, 40)):
-    """Create a simple placeholder banner as base64 PNG."""
-    width, height = 300, 150
-    img = Image.new("RGB", (width, height), (245, 248, 255))
-    stripe = Image.new("RGB", (width, 50), color)
-    img.paste(stripe, (0, height // 2 - 25))
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG")
-    return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
-
-
-def build_status_messages(npk_values, mask_pixels):
-    """Generate UI-friendly status list based on thresholds."""
-    statuses = []
-    if mask_pixels < 1000:
-        statuses.append({"level": "bad", "message": "Segmentation confidence is low. Retry with a clearer image."})
-    else:
-        statuses.append({"level": "good", "message": "Mask detected successfully."})
-
-    if npk_values["N"] < 5 or npk_values["P"] < 3:
-        statuses.append({"level": "warn", "message": "Nitrogen or phosphorus below desired range."})
-    else:
-        statuses.append({"level": "good", "message": "N and P within acceptable range."})
-
-    if npk_values["K"] < 4:
-        statuses.append({"level": "warn", "message": "Potassium slightly low."})
-    else:
-        statuses.append({"level": "good", "message": "Potassium level looks stable."})
-
-    return statuses
 
 
 def parse_float(value, default=None):
@@ -424,22 +366,12 @@ def extract_common_inputs():
     return formula, lot_number, threshold
 
 
-def status_level_from_messages(status_messages):
-    """Map list of status messages to a single level."""
-    if any(s["level"] == "bad" for s in status_messages):
-        return "bad"
-    if any(s["level"] == "warn" for s in status_messages):
-        return "warn"
-    return "ok"
-
-
 def process_image_payload(image_payload, target_npk, threshold):
     """Run segmentation + NPK prediction for a single image payload."""
-    inference_id = uuid.uuid4().hex
     filename = getattr(image_payload, "filename", "upload")
     start_time = time.perf_counter()
     image_hash = None
-    inference_logger.info("image_processing_start id=%s filename=%s", inference_id, filename)
+    inference_logger.info("image_processing_start filename=%s", filename)
     status_level = "error"
     try:
         if isinstance(image_payload, str):
@@ -456,7 +388,6 @@ def process_image_payload(image_payload, target_npk, threshold):
             npk_values = npk_predictor.predict(image_np, mask)
             mask_pixels = int(np.sum(mask > 0))
             cached = {
-                "original": numpy_to_base64(image_np),
                 "segmentation": numpy_to_base64(overlay),
                 "npk": {
                     "N": float(npk_values["N"]),
@@ -470,26 +401,23 @@ def process_image_payload(image_payload, target_npk, threshold):
                 },
             }
             _cache_set(image_hash, cached)
-            inference_logger.info("inference_cache miss image_hash=%s", image_hash)
+            inference_logger.info("inference_cache miss")
         else:
-            inference_logger.info("inference_cache hit image_hash=%s", image_hash)
+            inference_logger.info("inference_cache hit")
 
-        status_messages = build_status_messages(cached["npk"], cached["metadata"]["pixels_analyzed"])
         threshold_level, threshold_message, npk_errors = evaluate_npk_against_threshold(
             cached["npk"],
             target_npk,
             threshold,
         )
-        status_messages.append({"level": threshold_level, "message": threshold_message})
-        status_level = status_level_from_messages(status_messages)
+        status_level = threshold_level
 
         return {
             "filename": filename,
-            "original": cached["original"],
             "segmentation": cached["segmentation"],
             "npk": cached["npk"],
-            "status": status_messages,
             "status_level": status_level,
+            "status_message": threshold_message,
             "passed": status_level != "bad",
             "target_npk": target_npk,
             "npk_errors": npk_errors,
@@ -498,8 +426,7 @@ def process_image_payload(image_payload, target_npk, threshold):
     finally:
         duration_s = time.perf_counter() - start_time
         inference_logger.info(
-            "image_processing_end id=%s filename=%s duration_s=%.3f status=%s",
-            inference_id,
+            "image_processing_end filename=%s duration_s=%.3f status=%s",
             filename,
             duration_s,
             status_level,
@@ -541,27 +468,6 @@ def health_check():
         'models_loaded': unet_model is not None and npk_predictor is not None,
         'device': str(device)
     })
-
-
-@app.route('/api/model-info', methods=['GET'])
-def model_info():
-    """Get model metadata"""
-    return jsonify({
-        'unet': {
-            'checkpoint': str(UNET_CHECKPOINT),
-            'loaded': unet_model is not None
-        },
-        'regression': {
-            'checkpoint': str(REGRESSION_CHECKPOINT),
-            'loaded': npk_predictor is not None
-        }
-    })
-
-
-@app.route('/api/samples', methods=['GET'])
-def samples_api():
-    """Return sample gallery items."""
-    return jsonify({"items": sample_items})
 
 
 @app.route('/api/history', methods=['GET'])
@@ -639,7 +545,6 @@ def upload_and_process():
     Response:
         {
             "success": true,
-            "original": "base64_image",
             "segmentation": "base64_image",
             "npk": {
                 "N": 12.34,
@@ -801,14 +706,12 @@ def run_dev():
 @app.before_request
 def _log_request_start():
     endpoint = request.endpoint or "unknown"
-    g.request_id = uuid.uuid4().hex
     g.request_start = time.perf_counter()
     g.request_cpu_start = time.process_time()
     g.endpoint = endpoint
     g.endpoint_count = _record_endpoint_count(endpoint)
     runtime_logger.info(
-        "request_start id=%s method=%s path=%s endpoint=%s size_bytes=%s",
-        g.request_id,
+        "request_start method=%s path=%s endpoint=%s size_bytes=%s",
         request.method,
         request.path,
         endpoint,
@@ -823,9 +726,8 @@ def _log_request_end(response):
     in_flight = _finish_request_count()
     uptime_s = time.monotonic() - APP_START_MONO
     runtime_logger.info(
-        "request_end id=%s method=%s path=%s endpoint=%s status=%s duration_s=%.4f cpu_s=%.4f "
+        "request_end method=%s path=%s endpoint=%s status=%s duration_s=%.4f cpu_s=%.4f "
         "uptime_s=%.1f rss_mb=%.1f in_flight=%s total_requests=%s endpoint_count=%s bytes_out=%s",
-        getattr(g, "request_id", "n/a"),
         request.method,
         request.path,
         getattr(g, "endpoint", "unknown"),
@@ -851,8 +753,7 @@ def _log_request_teardown(error=None):
         return
     in_flight = _finish_request_count()
     runtime_logger.info(
-        "request_teardown id=%s method=%s path=%s endpoint=%s error=%s in_flight=%s",
-        getattr(g, "request_id", "n/a"),
+        "request_teardown method=%s path=%s endpoint=%s error=%s in_flight=%s",
         request.method,
         request.path,
         getattr(g, "endpoint", "unknown"),

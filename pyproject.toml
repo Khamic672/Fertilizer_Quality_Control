@@ -18,17 +18,9 @@ dependencies = [
   "numpy<2.3.0",
   "Pillow",
   "torch",
-  "torchvision",
-  "opencv-python-headless",
   "scikit-learn==1.7.2",
   "joblib",
   "openpyxl",
-  "matplotlib",
-  "seaborn",
-  "requests",
-  "tqdm",
-  "gradio",
-  "roboflow",
   "tomli; python_version < \"3.11\"",
 ]
 
@@ -40,10 +32,6 @@ cuda = [
   "torch==2.9.1+cu130 ; platform_system == \"Windows\" and python_version == \"3.11\"",
   "torchvision==0.24.1+cu130 ; platform_system == \"Windows\" and python_version == \"3.11\"",
 ]
-
-[project.scripts]
-soil-segment-train = "soil_segment.unet_trainer:main"
-soil-segment-viz = "soil_segment.visualizer:main"
 
 [tool.setuptools]
 package-dir = {"" = "backend/src"}

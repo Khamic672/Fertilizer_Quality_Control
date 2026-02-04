@@ -113,16 +113,8 @@
               <button class="nav-btn nav-btn--left" v-if="batchItems.length > 1" @click="prevItem">‹</button>
               <div class="preview-card">
                 <p class="section-label">{{ activeResult.filename || `ภาพที่ ${activeIndex + 1}` }}</p>
-                <div v-if="hasSegmentation" class="mask-toggle">
-                  <button class="ghost small toggle-button" :class="{ 'is-active': showMask }" @click="showMask = true">
-                    Mask
-                  </button>
-                  <button class="ghost small toggle-button" :class="{ 'is-active': !showMask }" @click="showMask = false">
-                    Original
-                  </button>
-                </div>
                 <img :src="previewImage" alt="preview" />
-                <div v-if="showMask && hasSegmentation" class="mask-legend">
+                <div v-if="hasSegmentation" class="mask-legend">
                   <p class="mask-legend__title">Legend</p>
                   <div class="mask-legend__items">
                     <div v-for="item in maskLegend" :key="item.label" class="mask-legend__item">
@@ -158,7 +150,7 @@
                 <span>สถานะ</span>
               </p>
               <ul>
-                <li v-for="status in activeResult?.status || []" :key="status.message" :class="status.level">
+                <li v-for="status in statusList" :key="status.message" :class="status.level">
                   <span class="dot" />
                   <span>{{ status.message }}</span>
                 </li>
@@ -169,16 +161,8 @@
           <template v-else>
             <div class="preview-card">
               <p class="section-label">Preview</p>
-              <div v-if="hasSegmentation" class="mask-toggle">
-                <button class="ghost small toggle-button" :class="{ 'is-active': showMask }" @click="showMask = true">
-                  Mask
-                </button>
-                <button class="ghost small toggle-button" :class="{ 'is-active': !showMask }" @click="showMask = false">
-                  Original
-                </button>
-              </div>
               <img :src="previewImage" alt="preview" />
-              <div v-if="showMask && hasSegmentation" class="mask-legend">
+              <div v-if="hasSegmentation" class="mask-legend">
                 <p class="mask-legend__title">Legend</p>
                 <div class="mask-legend__items">
                   <div v-for="item in maskLegend" :key="item.label" class="mask-legend__item">
@@ -325,7 +309,6 @@ const exportRange = ref({
   start: '',
   end: ''
 })
-const showMask = ref(true)
 
 const filters = ref({
   lot: '',
@@ -358,8 +341,7 @@ const hasSegmentation = computed(() => Boolean(activeResult.value?.segmentation)
 const previewImage = computed(() => {
   const result = activeResult.value
   if (!result) return ''
-  if (showMask.value && result.segmentation) return result.segmentation
-  return result.original
+  return result.segmentation || result.original || ''
 })
 
 const batchSummary = computed(() => {
@@ -390,7 +372,6 @@ const resetSelection = () => {
   results.value = null
   error.value = ''
   cameraError.value = ''
-  showMask.value = true
 }
 
 const buildMetrics = (npk, targetNpk, npkErrors, thresholdPercent) => {
@@ -426,7 +407,19 @@ const metrics = computed(() =>
   )
 )
 
-const statusList = computed(() => activeResult.value?.status || [])
+const statusList = computed(() => {
+  const result = activeResult.value
+  if (!result) return []
+  if (Array.isArray(result.status)) return result.status
+  if (result.status && typeof result.status === 'object') {
+    const { level, message } = result.status
+    if (message) return [{ level: level || result.status_level || 'ok', message }]
+  }
+  if (result.status_message) {
+    return [{ level: result.status_level || 'ok', message: result.status_message }]
+  }
+  return []
+})
 const checklistTone = computed(() => {
   if (!statusList.value.length) return 'neutral'
   if (statusList.value.some((s) => s.level === 'bad')) return 'bad'
@@ -599,7 +592,6 @@ const processSelected = async () => {
     const data = await res.json()
     if (!res.ok || !data.success) throw new Error(data.error || 'Processing failed')
     results.value = { ...data, mode: useBatch ? 'batch' : 'single' }
-    showMask.value = true
     activeIndex.value = 0
     clearSelectedFiles()
     await refreshHistory()

@@ -36,4 +36,4 @@ Click “ดาวน์โหลด Excel” in the UI, choose a date range, an
 ## Notes
 - Large model files are ignored by git; keep them in `backend/models/`.
 - History is stored in `backend/history.csv` and served via `/api/history` and `/api/history/export`.
-- Default image size processed: 1024x1024. Adjust in `backend/app.py` if needed.
+- Default image size processed: 512x512. Adjust via `SEGMENTATION_MODEL_SIZE` in `backend/src/soil_segment/config.py` (or set the env var).

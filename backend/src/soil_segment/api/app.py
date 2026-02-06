@@ -26,6 +26,7 @@ from soil_segment.config import (
     LOG_DIR,
     MODELS_DIR,
     RUNTIME_LOG_FILE,
+    SEGMENTATION_MODEL_SIZE,
 )
 from soil_segment.storage import append_history, delete_history_by_id, load_history
 
@@ -76,7 +77,7 @@ HISTORY_CSV = HISTORY_FILE
 CHECKPOINT_DIR = MODELS_DIR
 UNET_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
 REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.pkl"
-TARGET_SIZE = (1024, 1024)
+TARGET_SIZE = (SEGMENTATION_MODEL_SIZE, SEGMENTATION_MODEL_SIZE)
 APP_START_MONO = time.monotonic()
 _REQUEST_LOCK = threading.Lock()
 _REQUEST_COUNT = 0
@@ -193,7 +194,7 @@ def initialize_history():
 
 
 def preprocess_image(image_data):
-    """Convert uploaded image to 1024x1024 numpy array"""
+    """Convert uploaded image to TARGET_SIZE numpy array"""
     # Decode base64 or file
     if isinstance(image_data, str):
         # Base64 encoded
@@ -397,7 +398,7 @@ def process_image_payload(image_payload, target_npk, threshold):
                 "metadata": {
                     "classes_detected": int(len(np.unique(mask)) - 1),
                     "pixels_analyzed": mask_pixels,
-                    "image_size": "1024x1024",
+                    "image_size": f"{TARGET_SIZE[0]}x{TARGET_SIZE[1]}",
                 },
             }
             _cache_set(image_hash, cached)
@@ -466,7 +467,8 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'models_loaded': unet_model is not None and npk_predictor is not None,
-        'device': str(device)
+        'device': str(device),
+        'model_size': SEGMENTATION_MODEL_SIZE,
     })
 
 
@@ -569,7 +571,7 @@ def upload_and_process():
             },
             "metadata": {
                 "classes_detected": 3,
-                "pixels_analyzed": 1048576
+                "pixels_analyzed": 262144
             }
         }
     """

@@ -14,7 +14,7 @@ INFERENCE_LOG_FILE = LOG_DIR / "inference.log"
 RUNTIME_LOG_FILE = LOG_DIR / "runtime.log"
 SEGMENTATION_QUANTIZATION = os.environ.get("SEGMENTATION_QUANTIZATION", "none").strip().lower()
 SEGMENTATION_RUNTIME = os.environ.get("SEGMENTATION_RUNTIME", "torch").strip().lower()
-SEGMENTATION_MODEL_SIZE = int(os.environ.get("SEGMENTATION_MODEL_SIZE", "1024"))
+SEGMENTATION_MODEL_SIZE = int(os.environ.get("SEGMENTATION_MODEL_SIZE", "512"))
 SEGMENTATION_ONNX_PATH = Path(
     os.environ.get("SEGMENTATION_ONNX_PATH", str(MODELS_DIR / "segmentation.onnx"))
 )

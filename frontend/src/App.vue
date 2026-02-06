@@ -360,6 +360,7 @@ const results = ref(null)
 const selectedFiles = ref([])
 const history = ref([])
 const backendStatus = ref('checking')
+const modelSize = ref(512)
 const cameraActive = ref(false)
 const cameraError = ref('')
 const videoRef = ref(null)
@@ -639,8 +640,9 @@ const capturePhoto = () => {
   }
 
   const canvas = document.createElement('canvas')
-  const width = videoEl.videoWidth || 1024
-  const height = videoEl.videoHeight || 1024
+  const fallbackSize = modelSize.value || 512
+  const width = videoEl.videoWidth || fallbackSize
+  const height = videoEl.videoHeight || fallbackSize
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
@@ -813,6 +815,9 @@ const checkHealth = async () => {
     const res = await fetch(`${apiUrl}/health`)
     const data = await res.json()
     backendStatus.value = data.models_loaded ? 'ok' : 'warn'
+    if (typeof data.model_size === 'number' && Number.isFinite(data.model_size)) {
+      modelSize.value = data.model_size
+    }
   } catch {
     backendStatus.value = 'error'
   }

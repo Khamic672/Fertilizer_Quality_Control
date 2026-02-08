@@ -4,6 +4,7 @@ pictures/
 Learn 2D-Segmentation.ipynb
 *.jpg
 *.png
+*.json
 *.jpeg
 *.csv
 *.pkl

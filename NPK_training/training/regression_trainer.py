@@ -28,8 +28,8 @@ if __package__ in (None, ""):
         sys.path.insert(0, str(SRC_DIR))
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
-    from soil_segment.custom_unet import SimpleUNet
-    from soil_segment.config import get_data_paths
+    from training.custom_unet import SimpleUNet
+    from training.config import get_data_paths
 else:
     from .custom_unet import SimpleUNet
     from .config import get_data_paths

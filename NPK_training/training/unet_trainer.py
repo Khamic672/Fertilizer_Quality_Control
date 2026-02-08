@@ -20,8 +20,8 @@ import random
 # Support running as a script or within the package
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parents[1]))
-    from soil_segment.custom_unet import SimpleUNet, ConvBlock
-    from soil_segment.config import get_data_paths
+    from training.custom_unet import SimpleUNet, ConvBlock
+    from training.config import get_data_paths
 else:
     from .custom_unet import SimpleUNet, ConvBlock
     from .config import get_data_paths

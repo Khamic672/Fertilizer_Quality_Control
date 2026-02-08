@@ -56,6 +56,6 @@ where = ["src", "scripts"]
 include = ["soil_segment*", "scripts*"]
 
 [tool.soil_segment]
-unet_dataset = "datasets/UNET_dataset"
+unet_dataset = "datasets"
 regression_dataset = "datasets/regression_dataset"
 checkpoints_dir = "checkpoints"

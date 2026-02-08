@@ -17,7 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for older Pythons
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
 
-DEFAULT_UNET_DATASET = PROJECT_ROOT / "datasets" / "UNET_dataset"
+DEFAULT_UNET_DATASET = PROJECT_ROOT / "datasets"
 DEFAULT_REGRESSION_DATASET = PROJECT_ROOT / "datasets" / "regression_dataset"
 DEFAULT_CHECKPOINTS_DIR = PROJECT_ROOT / "checkpoints"
 

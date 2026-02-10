@@ -885,6 +885,13 @@ body,
   color: #1f2a3d;
 }
 
+.history-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
 .history-head {
   display: flex;
   justify-content: space-between;
@@ -999,7 +1006,8 @@ body,
 .table-wrapper {
   border: 1px solid var(--table-border);
   border-radius: 14px;
-  max-height: 60vh;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   background: #fff;
 }

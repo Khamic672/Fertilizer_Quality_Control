@@ -101,7 +101,8 @@ body,
   grid-template-columns: 260px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
-  min-height: calc(100vh - 72px);
+  height: calc(100vh - 72px);
+  overflow: hidden;
 }
 
 .sidebar {
@@ -151,6 +152,9 @@ body,
   gap: 24px;
   width: 100%;
   max-width: 1060px;
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .card-hero {
@@ -913,7 +917,8 @@ body,
 .table-wrapper {
   border: 1px solid var(--table-border);
   border-radius: 14px;
-  overflow: hidden;
+  max-height: 60vh;
+  overflow: auto;
   background: #fff;
 }
 

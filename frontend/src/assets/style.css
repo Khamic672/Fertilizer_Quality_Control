@@ -30,6 +30,13 @@ body {
   font-family: 'Google Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
+  overflow: hidden;
+}
+
+html,
+body,
+#app {
+  height: 100%;
 }
 
 .page {

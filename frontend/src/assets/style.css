@@ -41,6 +41,8 @@ body,
 
 .page {
   min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 
 .topbar {
@@ -94,9 +96,11 @@ body,
 }
 
 .layout {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 12px 24px 48px;
+  max-width: none;
+  width: 100%;
+  min-width: 320px;
+  margin: 0;
+  padding: 12px 16px 24px;
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 12px;
@@ -228,6 +232,7 @@ body,
   max-width: none;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 18px 20px 24px 12px;
   background: var(--card);
   border: 1px solid var(--sidebar-border);
@@ -354,7 +359,7 @@ body,
 
 .input-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -890,6 +895,7 @@ body,
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  min-width: 0;
 }
 
 .history-head {
@@ -1042,6 +1048,10 @@ tbody td {
 .history-card table th:not(:first-child):not(.actions-col),
 .history-card table td:not(:first-child):not(.actions-col) {
   text-align: center;
+}
+
+.history-card table {
+  min-width: 900px;
 }
 
 .actions-col {
@@ -1233,7 +1243,7 @@ tbody tr:nth-child(even) {
   }
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 700px) {
   .layout {
     grid-template-columns: 1fr;
     padding: 12px;

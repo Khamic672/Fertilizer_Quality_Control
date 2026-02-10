@@ -9,25 +9,35 @@
 
     <main class="layout">
       <aside class="sidebar">
-        <nav class="side-nav">
-          <a
-            class="side-link"
+        <nav class="side-tabs" aria-label="Primary">
+          <button
+            class="side-tab"
             :class="{ active: currentPage === 'upload' }"
-            href="#upload"
-            @click.prevent="setPage('upload')"
+            type="button"
+            @click="setPage('upload')"
+            aria-label="ระบบควบคุมคุณภาพปุ๋ย"
             :aria-current="currentPage === 'upload' ? 'page' : undefined"
           >
-            ระบบควบคุมคุณภาพปุ๋ย
-          </a>
-          <a
-            class="side-link"
+            <span class="side-tab__icon" aria-hidden="true">
+              <img src="/favicon.svg" alt="" />
+            </span>
+          </button>
+          <button
+            class="side-tab"
             :class="{ active: currentPage === 'history' }"
-            href="#history"
-            @click.prevent="setPage('history')"
+            type="button"
+            @click="setPage('history')"
+            aria-label="ประวัติการวิเคราะห์"
             :aria-current="currentPage === 'history' ? 'page' : undefined"
           >
-            ประวัติการวิเคราะห์
-          </a>
+            <span class="side-tab__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.5" />
+                <path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                <path d="M5 5h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+              </svg>
+            </span>
+          </button>
         </nav>
       </aside>
 

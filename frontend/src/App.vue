@@ -1,35 +1,65 @@
 <template>
   <div class="page">
     <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark">QC</div>
-          <div>
-            <p class="brand-title">Fertilizer Quality Control</p>
-          </div>
-        </div>
+      <h1 class="page-title">Quality Control System</h1>
       <div class="top-actions">
         <span :class="['pill', backendStatusClass]">Backend: {{ backendLabel }}</span>
       </div>
     </header>
 
     <main class="layout">
-      <div class="hero-heading">
-        <h2>ระบบควบคุมคุณภาพปุ๋ย</h2>
-        <p class="muted">ถ่ายภาพปุ๋ยเพื่อตรวจสอบคุณภาพด้วยการวิเคราะห์ภาพ AI</p>
-      </div>
-
-      <section id="upload-card" class="card upload-card">
-        <div class="upload-left">
-            <div
-            class="drop-area"
-            :class="{ 'drop-area--filled': hasSelection || cameraActive }"
-            @click="handleDropAreaClick"
-            @dragover.prevent
-            @drop.prevent="onDrop"
+      <aside class="sidebar">
+        <nav class="side-nav">
+          <a
+            class="side-link"
+            :class="{ active: currentPage === 'upload' }"
+            href="#upload"
+            @click.prevent="setPage('upload')"
+            :aria-current="currentPage === 'upload' ? 'page' : undefined"
           >
+            ระบบควบคุมคุณภาพปุ๋ย
+          </a>
+          <a
+            class="side-link"
+            :class="{ active: currentPage === 'history' }"
+            href="#history"
+            @click.prevent="setPage('history')"
+            :aria-current="currentPage === 'history' ? 'page' : undefined"
+          >
+            ประวัติการวิเคราะห์
+          </a>
+        </nav>
+      </aside>
+
+      <div class="content">
+        <section v-if="currentPage === 'upload'" id="upload-card" class="card upload-card">
+          <div class="card-hero">
+            <h2>ระบบควบคุมคุณภาพปุ๋ย</h2>
+            <p class="muted">ถ่ายภาพปุ๋ยเพื่อตรวจสอบคุณภาพด้วยการวิเคราะห์ภาพ AI</p>
+          </div>
+
+          <div class="upload-left">
+            <div
+              class="drop-area"
+              :class="{ 'drop-area--filled': hasSelection || cameraActive }"
+              @click="handleDropAreaClick"
+              @dragover.prevent
+              @drop.prevent="onDrop"
+            >
             <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onFileChange" />
             <div v-if="!hasSelection && !cameraActive" class="drop-inner">
-              <div class="camera-icon">📷</div>
+              <div class="camera-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path
+                    d="M9 6.5 10.5 4h3L15 6.5h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h3Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linejoin="round"
+                  />
+                  <circle cx="12" cy="12.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+              </div>
               <p class="muted center">ถ่ายรูป หรืออัปโหลดหลายรูปในล็อตเดียว</p>
             </div>
             <div v-if="!hasSelection && !cameraActive" class="upload-buttons">
@@ -64,7 +94,7 @@
             </ul>
           </div>
 
-          <div class="input-card">
+          <div class="form-section">
             <p class="section-label">สูตรปุ๋ยที่ต้องการวิเคราะห์</p>
             <div class="input-grid">
               <div class="field">
@@ -90,29 +120,77 @@
           <div v-if="error" class="alert error">
             <p>{{ error }}</p>
           </div>
-        </div>
+          </div>
 
-        <div class="upload-results" v-if="results">
-          <template v-if="isBatchResult">
-            <div class="input-card">
-              <p class="section-label">สรุปล็อตเดียวกัน</p>
-              <p class="muted">
-                Lot: {{ batchSummary?.lot_number || '—' }} • สูตร: {{ batchSummary?.formula || '—' }} • Threshold:
-                {{ batchSummary?.threshold ?? '—' }}
-              </p>
-              <div class="summary-row">
-                <div>จำนวนรูป: {{ batchSummary?.total_images || 0 }}</div>
-                <div>ผ่าน: {{ batchSummary?.passed_images || 0 }}</div>
-                <div>
-                  <span :class="['status-pill', batchSummary?.status || 'ok']">{{ batchSummary?.status || 'ok' }}</span>
+          <div class="upload-results" v-if="results">
+            <template v-if="isBatchResult">
+              <div class="input-card input-card--boxed">
+                <p class="section-label">สรุปล็อตเดียวกัน</p>
+                <p class="muted">
+                  Lot: {{ batchSummary?.lot_number || '—' }} • สูตร: {{ batchSummary?.formula || '—' }} • Threshold:
+                  {{ batchSummary?.threshold ?? '—' }}
+                </p>
+                <div class="summary-row">
+                  <div>จำนวนรูป: {{ batchSummary?.total_images || 0 }}</div>
+                  <div>ผ่าน: {{ batchSummary?.passed_images || 0 }}</div>
+                  <div>
+                    <span :class="['status-pill', batchSummary?.status || 'ok']">{{ batchSummary?.status || 'ok' }}</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div class="carousel" v-if="activeResult">
-              <button class="nav-btn nav-btn--left" v-if="batchItems.length > 1" @click="prevItem">‹</button>
+              <div class="carousel" v-if="activeResult">
+                <button class="nav-btn nav-btn--left" v-if="batchItems.length > 1" @click="prevItem">‹</button>
+                <div class="preview-card">
+                  <p class="section-label">{{ activeResult.filename || `ภาพที่ ${activeIndex + 1}` }}</p>
+                  <img :src="previewImage" alt="preview" />
+                  <div v-if="hasSegmentation" class="mask-legend">
+                    <p class="mask-legend__title">Legend</p>
+                    <div class="mask-legend__items">
+                      <div v-for="item in maskLegend" :key="item.label" class="mask-legend__item">
+                        <span class="mask-legend__swatch" :style="{ backgroundColor: item.color }"></span>
+                        <span>{{ item.label }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button class="nav-btn nav-btn--right" v-if="batchItems.length > 1" @click="nextItem">›</button>
+              </div>
+
+              <div class="status-bars">
+                <div class="bar-row" v-for="metric in metrics" :key="metric.key">
+                  <div class="bar-label">
+                    <span>{{ metric.label }}</span>
+                    <span>{{ metric.value.toFixed(2) }}</span>
+                  </div>
+                  <div class="bar-track">
+                    <div
+                      class="bar-fill"
+                      :style="{
+                        width: metric.percent + '%',
+                        backgroundColor: metric.color
+                      }"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="checklist mini" :class="statusTone(activeResult?.status_level)">
+                <p class="checklist-title">
+                  <span>สถานะ</span>
+                </p>
+                <ul>
+                  <li v-for="status in statusList" :key="status.message" :class="status.level">
+                    <span class="dot" />
+                    <span>{{ status.message }}</span>
+                  </li>
+                </ul>
+              </div>
+            </template>
+
+            <template v-else>
               <div class="preview-card">
-                <p class="section-label">{{ activeResult.filename || `ภาพที่ ${activeIndex + 1}` }}</p>
+                <p class="section-label">Preview</p>
                 <img :src="previewImage" alt="preview" />
                 <div v-if="hasSegmentation" class="mask-legend">
                   <p class="mask-legend__title">Legend</p>
@@ -124,94 +202,46 @@
                   </div>
                 </div>
               </div>
-              <button class="nav-btn nav-btn--right" v-if="batchItems.length > 1" @click="nextItem">›</button>
-            </div>
-
-            <div class="status-bars">
-              <div class="bar-row" v-for="metric in metrics" :key="metric.key">
-                <div class="bar-label">
-                  <span>{{ metric.label }}</span>
-                  <span>{{ metric.value.toFixed(2) }}</span>
-                </div>
-                <div class="bar-track">
-                  <div
-                    class="bar-fill"
-                    :style="{
-                      width: metric.percent + '%',
-                      backgroundColor: metric.color
-                    }"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div class="checklist mini" :class="statusTone(activeResult?.status_level)">
-              <p class="checklist-title">
-                <span>สถานะ</span>
-              </p>
-              <ul>
-                <li v-for="status in statusList" :key="status.message" :class="status.level">
-                  <span class="dot" />
-                  <span>{{ status.message }}</span>
-                </li>
-              </ul>
-            </div>
-          </template>
-
-          <template v-else>
-            <div class="preview-card">
-              <p class="section-label">Preview</p>
-              <img :src="previewImage" alt="preview" />
-              <div v-if="hasSegmentation" class="mask-legend">
-                <p class="mask-legend__title">Legend</p>
-                <div class="mask-legend__items">
-                  <div v-for="item in maskLegend" :key="item.label" class="mask-legend__item">
-                    <span class="mask-legend__swatch" :style="{ backgroundColor: item.color }"></span>
-                    <span>{{ item.label }}</span>
+              <div class="status-bars">
+                <div class="bar-row" v-for="metric in metrics" :key="metric.key">
+                  <div class="bar-label">
+                    <span>{{ metric.label }}</span>
+                    <span>{{ metric.value.toFixed(2) }}</span>
+                  </div>
+                  <div class="bar-track">
+                    <div
+                      class="bar-fill"
+                      :style="{
+                        width: metric.percent + '%',
+                        backgroundColor: metric.color
+                      }"
+                    />
                   </div>
                 </div>
               </div>
-            </div>
-            <div class="status-bars">
-              <div class="bar-row" v-for="metric in metrics" :key="metric.key">
-                <div class="bar-label">
-                  <span>{{ metric.label }}</span>
-                  <span>{{ metric.value.toFixed(2) }}</span>
-                </div>
-                <div class="bar-track">
-                  <div
-                    class="bar-fill"
-                    :style="{
-                      width: metric.percent + '%',
-                      backgroundColor: metric.color
-                    }"
-                  />
-                </div>
+              <div class="checklist" :class="checklistTone">
+                <p class="checklist-title">
+                  <span>{{ checklistTone === 'bad' ? 'Warnings' : 'Checklist' }}</span>
+                  <button class="ghost small" @click="acknowledge">OK</button>
+                </p>
+                <ul>
+                  <li v-for="item in statusList" :key="item.message" :class="item.level">
+                    <span class="dot" />
+                    <span>{{ item.message }}</span>
+                  </li>
+                </ul>
               </div>
-            </div>
-            <div class="checklist" :class="checklistTone">
-              <p class="checklist-title">
-                <span>{{ checklistTone === 'bad' ? 'Warnings' : 'Checklist' }}</span>
-                <button class="ghost small" @click="acknowledge">OK</button>
-              </p>
-              <ul>
-                <li v-for="item in statusList" :key="item.message" :class="item.level">
-                  <span class="dot" />
-                  <span>{{ item.message }}</span>
-                </li>
-              </ul>
-            </div>
-          </template>
-        </div>
+            </template>
+          </div>
+        </section>
 
-        <div v-else class="upload-results placeholder">
-          <p class="muted">ผลลัพธ์จะแสดงที่นี่เมื่อประมวลผลเสร็จ</p>
-        </div>
-      </section>
-
-      <section class="card history-card">
-        <div class="history-head">
-          <h3>ประวัติการวิเคราะห์</h3>
+        <section v-else id="history-card" class="card history-card">
+          <div class="history-head">
+            <h3>ประวัติการวิเคราะห์</h3>
+            <button class="ghost icon-button download-button" @click="openExportModal">
+              ↓ ดาวน์โหลด Excel
+            </button>
+          </div>
           <div class="history-actions">
             <div ref="filterMenuRef" class="filter-menu">
               <button
@@ -264,53 +294,82 @@
             <button class="ghost icon-button sort-button" @click="cycleSort">
               ↕️ เรียงตาม: {{ sortLabel }}
             </button>
-            <button class="ghost icon-button" @click="openExportModal">
-              ↓ ดาวน์โหลด Excel
+          </div>
+
+          <p v-if="historyError" class="alert error small">{{ historyError }}</p>
+
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>สูตร</th>
+                  <th>Lot number</th>
+                  <th>Treshold</th>
+                  <th>จำนวนรูปทั้งหมด</th>
+                  <th>จำนวนรูปที่ผ่าน</th>
+                  <th>วันที่ตรวจสอบ</th>
+                  <th>ผลตรวจ</th>
+                  <th class="actions-col">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in pagedHistory" :key="row.id">
+                  <td>{{ row.formula || '—' }}</td>
+                  <td>{{ row.lot_number || row.name }}</td>
+                  <td>{{ row.threshold != null ? row.threshold + '%' : '—' }}</td>
+                  <td>{{ row.total_images ?? 1 }}</td>
+                  <td>{{ row.passed_images ?? (row.status === 'ok' ? 1 : 0) }}</td>
+                  <td>{{ row.date }}</td>
+                  <td>
+                    <span :class="['status-text', row.status]">{{ formatStatusLabel(row.status) }}</span>
+                  </td>
+                  <td class="actions-col">
+                    <button
+                      class="ghost danger small"
+                      :disabled="deletingIds.has(row.id)"
+                      @click="deleteHistory(row)"
+                    >
+                      {{ deletingIds.has(row.id) ? 'กำลังลบ...' : 'ลบ' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pagination">
+            <div class="page-size">
+              <span>แถว/หน้า</span>
+              <select v-model.number="rowsPerPage">
+                <option v-for="option in rowsPerPageOptions" :key="option" :value="option">{{ option }}</option>
+              </select>
+            </div>
+            <span class="pagination-range">{{ historyRangeLabel }}</span>
+            <button class="page-nav" type="button" :disabled="currentHistoryPage === 1" @click="prevHistoryPage">
+              ‹
+            </button>
+            <button
+              v-for="(item, index) in pageItems"
+              :key="`page-${item}-${index}`"
+              class="page-button"
+              type="button"
+              :class="{ active: item === currentHistoryPage, dots: item === '...' }"
+              :disabled="item === '...'"
+              @click="item !== '...' && setHistoryPage(Number(item))"
+            >
+              {{ item }}
+            </button>
+            <button
+              class="page-nav"
+              type="button"
+              :disabled="currentHistoryPage === pageCount"
+              @click="nextHistoryPage"
+            >
+              ›
             </button>
           </div>
-        </div>
-
-        <p v-if="historyError" class="alert error small">{{ historyError }}</p>
-
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>สูตร</th>
-                <th>Lot number</th>
-                <th>Treshold</th>
-                <th>จำนวนรูปทั้งหมด</th>
-                <th>จำนวนรูปที่ผ่าน</th>
-                <th>วันที่ตรวจสอบ</th>
-                <th>ผลตรวจ</th>
-                <th class="actions-col">จัดการ</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in sortedHistory" :key="row.id">
-                <td>{{ row.formula || '—' }}</td>
-                <td>{{ row.lot_number || row.name }}</td>
-                <td>{{ row.threshold != null ? row.threshold + '%' : '—' }}</td>
-                <td>{{ row.total_images ?? 1 }}</td>
-                <td>{{ row.passed_images ?? (row.status === 'ok' ? 1 : 0) }}</td>
-                <td>{{ row.date }}</td>
-                <td>
-                  <span :class="['status-pill', row.status]">{{ row.status }}</span>
-                </td>
-                <td class="actions-col">
-                  <button
-                    class="ghost danger small"
-                    :disabled="deletingIds.has(row.id)"
-                    @click="deleteHistory(row)"
-                  >
-                    {{ deletingIds.has(row.id) ? 'กำลังลบ...' : 'ลบ' }}
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
 
     <div v-if="showExportModal" class="modal-backdrop">
@@ -347,7 +406,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import LoadingSpinner from './components/LoadingSpinner.vue'
 
 const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
@@ -380,6 +439,10 @@ const deletingIds = ref(new Set())
 const sortMode = ref('date_desc')
 const filterMenuOpen = ref(false)
 const filterMenuRef = ref(null)
+const currentPage = ref('upload')
+const rowsPerPage = ref(10)
+const currentHistoryPage = ref(1)
+const rowsPerPageOptions = [10, 20, 50]
 
 const sortOptions = [
   { value: 'date_desc', label: 'วันที่ล่าสุด' },
@@ -550,6 +613,32 @@ const sortedHistory = computed(() => {
 
 const sortLabel = computed(() => sortOptions.find((option) => option.value === sortMode.value)?.label || 'วันที่ล่าสุด')
 
+const totalHistory = computed(() => sortedHistory.value.length)
+const pageCount = computed(() => Math.max(1, Math.ceil(totalHistory.value / rowsPerPage.value)))
+const pagedHistory = computed(() => {
+  const start = (currentHistoryPage.value - 1) * rowsPerPage.value
+  return sortedHistory.value.slice(start, start + rowsPerPage.value)
+})
+const historyRangeLabel = computed(() => {
+  if (!totalHistory.value) return '0-0 จาก 0'
+  const start = (currentHistoryPage.value - 1) * rowsPerPage.value + 1
+  const end = Math.min(totalHistory.value, start + rowsPerPage.value - 1)
+  return `${start}-${end} จาก ${totalHistory.value}`
+})
+const pageItems = computed(() => {
+  const total = pageCount.value
+  const current = currentHistoryPage.value
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1)
+  const items = [1]
+  if (current > 4) items.push('...')
+  const start = Math.max(2, current - 1)
+  const end = Math.min(total - 1, current + 1)
+  for (let i = start; i <= end; i += 1) items.push(i)
+  if (current < total - 3) items.push('...')
+  items.push(total)
+  return items
+})
+
 const triggerFileSelect = () => {
   if (fileInput.value) fileInput.value.click()
 }
@@ -719,12 +808,14 @@ const refreshHistory = async () => {
 
 const resetFilters = () => {
   filters.value = { lot: '', status: '' }
+  currentHistoryPage.value = 1
 }
 
 const cycleSort = () => {
   const currentIndex = sortOptions.findIndex((option) => option.value === sortMode.value)
   const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % sortOptions.length
   sortMode.value = sortOptions[nextIndex].value
+  currentHistoryPage.value = 1
 }
 
 const toggleFilterMenu = () => {
@@ -737,7 +828,48 @@ const closeFilterMenu = () => {
 
 const setStatusFilter = (value) => {
   filters.value.status = value
+  currentHistoryPage.value = 1
   closeFilterMenu()
+}
+
+const syncPageFromHash = () => {
+  if (typeof window === 'undefined') return
+  const hash = window.location.hash.replace('#', '')
+  const normalized = hash.replace('-card', '')
+  currentPage.value = normalized === 'history' ? 'history' : 'upload'
+}
+
+const setPage = (page) => {
+  currentPage.value = page
+  if (typeof window !== 'undefined') {
+    const nextHash = page === 'history' ? '#history' : '#upload'
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+const setHistoryPage = (page) => {
+  const next = Math.min(Math.max(1, page), pageCount.value)
+  currentHistoryPage.value = next
+}
+
+const prevHistoryPage = () => {
+  setHistoryPage(currentHistoryPage.value - 1)
+}
+
+const nextHistoryPage = () => {
+  setHistoryPage(currentHistoryPage.value + 1)
+}
+
+const formatStatusLabel = (status) => {
+  if (!status) return '—'
+  const normalized = String(status).toLowerCase()
+  if (normalized === 'ok') return 'ผ่าน'
+  if (normalized === 'warn') return 'เตือน'
+  if (normalized === 'bad') return 'ไม่ผ่าน'
+  return status
 }
 
 const handleOutsideFilterClick = (event) => {
@@ -876,12 +1008,24 @@ const downloadHistory = async () => {
 
 onMounted(async () => {
   document.addEventListener('click', handleOutsideFilterClick)
+  syncPageFromHash()
+  window.addEventListener('hashchange', syncPageFromHash)
   await Promise.all([checkHealth(), refreshHistory()])
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleOutsideFilterClick)
+  window.removeEventListener('hashchange', syncPageFromHash)
   stopCamera()
   clearSelectedFiles()
+})
+
+watch([rowsPerPage, sortedHistory], () => {
+  if (currentHistoryPage.value > pageCount.value) {
+    currentHistoryPage.value = pageCount.value
+  }
+  if (currentHistoryPage.value < 1) {
+    currentHistoryPage.value = 1
+  }
 })
 </script>

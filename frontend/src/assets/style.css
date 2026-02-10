@@ -255,7 +255,7 @@ body,
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 24px 26px;
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .upload-card {

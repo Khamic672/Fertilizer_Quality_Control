@@ -132,13 +132,14 @@ body,
   align-items: flex-end;
   width: 100%;
   overflow: visible;
-  justify-content: space-between;
+  justify-content: stretch;
 }
 
 .side-tab {
   width: 72px;
-  height: calc((100% - 12px) / 2);
+  height: auto;
   min-height: 140px;
+  flex: 1;
   border-radius: 20px 0 0 20px;
   padding: 0;
   display: flex;
@@ -170,6 +171,14 @@ body,
   border-color: var(--sidebar-border);
   border-right-color: transparent;
   z-index: 2;
+}
+
+.side-tab:first-child {
+  margin-top: -1px;
+}
+
+.side-tab:last-child {
+  margin-bottom: -1px;
 }
 
 .side-tab.active::before {

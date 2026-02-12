@@ -35,6 +35,7 @@ from soil_segment.inference import (
     load_segmentation_model,
     predict_segmentation,
 )
+from soil_segment.model import DummySegmenter
 from soil_segment.npk_predictor import NPKPredictor
 
 # Initialize Flask app
@@ -161,22 +162,67 @@ def _request_size_bytes() -> int:
     return 0
 
 
+def _validate_required_model_files() -> None:
+    required_models = {
+        "UNet segmentation model": UNET_CHECKPOINT,
+        "NPK regression model": REGRESSION_CHECKPOINT,
+    }
+    missing = []
+    for model_name, model_path in required_models.items():
+        if not model_path.exists():
+            runtime_logger.error("%s checkpoint is missing: %s", model_name, model_path)
+            missing.append(f"{model_name} ({model_path})")
+
+    if missing:
+        raise RuntimeError(f"Missing required model checkpoint(s): {', '.join(missing)}")
+
+
 def initialize_models():
     """Load models on startup"""
     global unet_model, npk_predictor, device
-    
+
+    # Reset globals so partial initialization does not look healthy.
+    unet_model = None
+    npk_predictor = None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    
-    # Load UNet
-    print("Loading UNet segmentation model...")
-    unet_model = load_segmentation_model(str(UNET_CHECKPOINT), device)
-    
-    # Load regression model
-    print("Loading NPK regression model...")
-    npk_predictor = NPKPredictor(str(REGRESSION_CHECKPOINT))
-    
-    print("All models loaded successfully.")
+    runtime_logger.info("Using device: %s", device)
+
+    _validate_required_model_files()
+
+    runtime_logger.info("Loading UNet segmentation model from %s", UNET_CHECKPOINT)
+    try:
+        loaded_unet = load_segmentation_model(str(UNET_CHECKPOINT), device)
+    except Exception as exc:
+        runtime_logger.exception(
+            "UNet segmentation model load failed from %s: %s",
+            UNET_CHECKPOINT,
+            exc,
+        )
+        raise RuntimeError("UNet segmentation model failed to load.") from exc
+
+    if isinstance(loaded_unet, DummySegmenter):
+        load_error = getattr(loaded_unet, "_load_error", "unknown error")
+        runtime_logger.error(
+            "UNet segmentation model load failed from %s (fallback DummySegmenter detected): %s",
+            UNET_CHECKPOINT,
+            load_error,
+        )
+        raise RuntimeError(f"UNet segmentation model failed to load ({load_error})")
+    unet_model = loaded_unet
+
+    runtime_logger.info("Loading NPK regression model from %s", REGRESSION_CHECKPOINT)
+    try:
+        loaded_predictor = NPKPredictor(str(REGRESSION_CHECKPOINT), strict=True)
+    except Exception as exc:
+        runtime_logger.exception(
+            "NPK regression model load failed from %s: %s",
+            REGRESSION_CHECKPOINT,
+            exc,
+        )
+        raise RuntimeError("NPK regression model failed to load.") from exc
+    npk_predictor = loaded_predictor
+
+    runtime_logger.info("All models loaded successfully.")
     initialize_history()
 
 
@@ -703,7 +749,11 @@ def run_dev():
     print("=" * 50)
 
     # Initialize models
-    initialize_models()
+    try:
+        initialize_models()
+    except Exception as exc:
+        runtime_logger.error("Backend startup aborted: %s", exc)
+        raise SystemExit(1) from exc
 
     # Start server
     host = os.environ.get("HOST", "0.0.0.0")

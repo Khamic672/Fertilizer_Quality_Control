@@ -25,27 +25,35 @@ CLASS_COMPOSITIONS = {
 
 
 class NPKPredictor:
-    def __init__(self, checkpoint_path: str):
+    def __init__(self, checkpoint_path: str, strict: bool = False):
         self.checkpoint_path = Path(checkpoint_path)
+        self.strict = strict
         self.model = None
+        self.load_error = None
         self._load_model()
+        if self.strict and self.model is None:
+            raise RuntimeError(self.load_error or "Failed to load regression model.")
 
     def _load_model(self) -> None:
         if not self.checkpoint_path.exists():
-            print(f"NPK checkpoint not found at {self.checkpoint_path}. Using heuristic predictions.")
+            self.load_error = f"NPK checkpoint not found at {self.checkpoint_path}."
+            print(f"{self.load_error} Using heuristic predictions.")
             return
 
         try:
             # Prefer joblib for sklearn regressors
             self.model = joblib.load(self.checkpoint_path)
+            self.load_error = None
             print("Loaded regression model.")
         except Exception as exc:
             try:
                 with self.checkpoint_path.open("rb") as f:
                     self.model = pickle.load(f)
+                self.load_error = None
                 print("Loaded regression model via pickle.")
             except Exception as exc2:
-                print(f"Failed to load regression model ({exc}; {exc2}). Using heuristic predictions.")
+                self.load_error = f"Failed to load regression model ({exc}; {exc2})."
+                print(f"{self.load_error} Using heuristic predictions.")
                 self.model = None
 
     def predict(self, image_np: np.ndarray, mask: np.ndarray) -> Dict[str, float]:

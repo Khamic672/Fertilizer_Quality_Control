@@ -136,8 +136,10 @@ def preprocess_for_model(image_np: np.ndarray, device: torch.device) -> torch.Te
 def _load_torch_model(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
     path = Path(checkpoint_path)
     if not path.exists():
-        print(f"Checkpoint not found at {path}. Using dummy segmenter.")
+        load_error = f"Checkpoint not found at {path}."
+        print(f"{load_error} Using dummy segmenter.")
         model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
+        setattr(model, "_load_error", load_error)
         model.to(device)
         model.eval()
         return model
@@ -157,8 +159,10 @@ def _load_torch_model(checkpoint_path: str, device: torch.device) -> torch.nn.Mo
         model.eval()
         return model
     except Exception as exc:
-        print(f"Failed to load checkpoint ({exc}). Using dummy segmenter.")
+        load_error = f"Failed to load checkpoint ({exc})."
+        print(f"{load_error} Using dummy segmenter.")
         model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
+        setattr(model, "_load_error", load_error)
         model.to(device)
         model.eval()
         return model

@@ -39,8 +39,3 @@ package-dir = {"" = "backend/src"}
 [tool.setuptools.packages.find]
 where = ["backend/src"]
 include = ["soil_segment*"]
-
-[tool.soil_segment]
-unet_dataset = "NPK_training/datasets"
-regression_dataset = "datasets/regression_dataset"
-checkpoints_dir = "checkpoints"

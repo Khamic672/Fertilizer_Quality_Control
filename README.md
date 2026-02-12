@@ -30,6 +30,20 @@ npm run dev
 ```
 Open the URL Vite prints (default `http://localhost:5173`). If your API is elsewhere, set `VITE_API_URL` in `frontend/.env` (example: `VITE_API_URL=http://localhost:5000/api`).
 
+## Testing (pytest)
+From the repo root:
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest -q test/test_model_predictions.py
+```
+Run all tests:
+```bash
+python -m pytest -q
+```
+Notes:
+- Tests expect model files in `backend/models/` and sample image `test/20-3-3.JPG`.
+- Snapshot values may need updates when checkpoints are retrained/replaced.
+
 ## Exporting history
 Click “ดาวน์โหลด Excel” in the UI, choose a date range, and it will download a filtered Excel file generated from `backend/history.csv`.
 

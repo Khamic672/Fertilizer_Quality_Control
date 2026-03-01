@@ -1,33 +1,26 @@
 <template>
   <div class="page">
     <header class="topbar">
-      <h1 class="page-title">Quality Control System</h1>
-      <div class="top-actions">
-        <span :class="['pill', backendStatusClass]">Backend: {{ backendLabel }}</span>
-      </div>
-    </header>
-
-    <main class="layout">
-      <aside class="sidebar">
-        <nav class="side-tabs" aria-label="Primary">
+      <div class="topbar-left">
+        <h1 class="page-title">Quality Control System</h1>
+        <nav class="top-selector" aria-label="Primary">
           <button
-            class="side-tab"
+            class="top-selector__tab"
             :class="{ active: currentPage === 'upload' }"
             type="button"
             @click="setPage('upload')"
-            aria-label="ระบบควบคุมคุณภาพปุ๋ย"
             :aria-current="currentPage === 'upload' ? 'page' : undefined"
           >
             <span class="side-tab__icon" aria-hidden="true">
               <img src="/favicon.svg" alt="" />
             </span>
+            <span class="top-selector__label">ระบบควบคุมคุณภาพปุ๋ย</span>
           </button>
           <button
-            class="side-tab"
+            class="top-selector__tab"
             :class="{ active: currentPage === 'history' }"
             type="button"
             @click="setPage('history')"
-            aria-label="ประวัติการวิเคราะห์"
             :aria-current="currentPage === 'history' ? 'page' : undefined"
           >
             <span class="side-tab__icon" aria-hidden="true">
@@ -37,9 +30,16 @@
                 <path d="M5 5h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
               </svg>
             </span>
+            <span class="top-selector__label">ประวัติการวิเคราะห์</span>
           </button>
         </nav>
-      </aside>
+      </div>
+      <div class="top-actions">
+        <span :class="['pill', backendStatusClass]">Backend: {{ backendLabel }}</span>
+      </div>
+    </header>
+
+    <main class="layout">
 
       <div class="content">
         <section v-if="currentPage === 'upload'" id="upload-card" class="card upload-card">

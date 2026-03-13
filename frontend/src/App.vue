@@ -107,17 +107,26 @@
           <div class="form-section">
             <p class="section-label">สูตรปุ๋ยที่ต้องการวิเคราะห์</p>
             <div class="input-grid">
-              <div class="field">
-                <label>สูตรปุ๋ย (NPK)</label>
-                <input v-model="formInputs.formula" placeholder="เช่น 15-15-15" />
+              <div class="field field--npk">
+                <label>สูตรปุ๋ย (N-P-K)</label>
+                <div class="npk-input-row">
+                  <input v-model="formInputs.n" type="number" inputmode="decimal" min="0" placeholder="N" />
+                  <span class="npk-separator">-</span>
+                  <input v-model="formInputs.p" type="number" inputmode="decimal" min="0" placeholder="P" />
+                  <span class="npk-separator">-</span>
+                  <input v-model="formInputs.k" type="number" inputmode="decimal" min="0" placeholder="K" />
+                </div>
               </div>
               <div class="field">
                 <label>Lot number</label>
                 <input v-model="formInputs.lotNumber" placeholder="ระบุ" />
               </div>
-              <div class="field">
-                <label>Threshold (% error)*</label>
-                <input v-model.number="formInputs.threshold" type="number" min="0" max="100" placeholder="ระบุ" />
+              <div class="field field--toggle">
+                <label>Model option</label>
+                <label class="checkbox-label">
+                  <input v-model="formInputs.uncoated" type="checkbox" />
+                  <span>Uncoated</span>
+                </label>
               </div>
             </div>
           </div>
@@ -137,8 +146,7 @@
               <div class="input-card input-card--boxed">
                 <p class="section-label">สรุปล็อตเดียวกัน</p>
                 <p class="muted">
-                  Lot: {{ batchSummary?.lot_number || '—' }} • สูตร: {{ batchSummary?.formula || '—' }} • Threshold:
-                  {{ batchSummary?.threshold ?? '—' }}
+                  Lot: {{ batchSummary?.lot_number || '—' }} • สูตร: {{ batchSummary?.formula || '—' }}
                 </p>
                 <div class="summary-row">
                   <div>จำนวนรูป: {{ batchSummary?.total_images || 0 }}</div>
@@ -314,7 +322,6 @@
                 <tr>
                   <th>สูตร</th>
                   <th>Lot number</th>
-                  <th>Treshold</th>
                   <th>จำนวนรูปทั้งหมด</th>
                   <th>จำนวนรูปที่ผ่าน</th>
                   <th>วันที่ตรวจสอบ</th>
@@ -326,7 +333,6 @@
                 <tr v-for="row in pagedHistory" :key="row.id">
                   <td>{{ row.formula || '—' }}</td>
                   <td>{{ row.lot_number || row.name }}</td>
-                  <td>{{ row.threshold != null ? row.threshold + '%' : '—' }}</td>
                   <td>{{ row.total_images ?? 1 }}</td>
                   <td>{{ row.passed_images ?? (row.status === 'ok' ? 1 : 0) }}</td>
                   <td>{{ row.date }}</td>
@@ -434,9 +440,11 @@ const cameraActive = ref(false)
 const cameraError = ref('')
 const videoRef = ref(null)
 const formInputs = ref({
-  formula: '',
+  n: '',
+  p: '',
+  k: '',
   lotNumber: '',
-  threshold: 5
+  uncoated: false
 })
 const showExportModal = ref(false)
 const exportError = ref('')
@@ -504,8 +512,7 @@ const batchSummary = computed(() => {
     passed_images: results.value.passed ? 1 : level === 'bad' ? 0 : 1,
     status: level,
     formula: results.value.inputs?.formula,
-    lot_number: results.value.inputs?.lot_number,
-    threshold: results.value.inputs?.threshold
+    lot_number: results.value.inputs?.lot_number
   }
 })
 
@@ -525,14 +532,14 @@ const resetSelection = () => {
   cameraError.value = ''
 }
 
-const buildMetrics = (npk, targetNpk, npkErrors, thresholdPercent) => {
+const buildMetrics = (npk, npkErrors, npkAllowances) => {
   const values = npk || { N: 0, P: 0, K: 0 }
-  const threshold = thresholdPercent ?? 5
 
   const colorFor = (key) => {
     const diff = npkErrors && typeof npkErrors[key] === 'number' ? npkErrors[key] : null
-    if (diff === null) return '#1f8f45'
-    return diff <= threshold ? '#1f8f45' : '#c0392b'
+    const allowance = npkAllowances && typeof npkAllowances[key] === 'number' ? npkAllowances[key] : null
+    if (diff === null || allowance === null) return '#1f8f45'
+    return diff <= allowance ? '#1f8f45' : '#c0392b'
   }
 
   const total = 30
@@ -552,24 +559,29 @@ const statusTone = (level) => {
 const metrics = computed(() =>
   buildMetrics(
     activeResult.value?.npk,
-    activeResult.value?.target_npk || results.value?.inputs?.target_npk,
     activeResult.value?.npk_errors,
-    results.value?.inputs?.threshold ?? results.value?.summary?.threshold
+    activeResult.value?.npk_allowances
   )
 )
 
 const statusList = computed(() => {
   const result = activeResult.value
   if (!result) return []
-  if (Array.isArray(result.status)) return result.status
+  const statusItems = []
+  if (Array.isArray(result.status)) {
+    statusItems.push(...result.status)
+  }
   if (result.status && typeof result.status === 'object') {
     const { level, message } = result.status
-    if (message) return [{ level: level || result.status_level || 'ok', message }]
+    if (message) statusItems.push({ level: level || result.status_level || 'ok', message })
   }
   if (result.status_message) {
-    return [{ level: result.status_level || 'ok', message: result.status_message }]
+    statusItems.push({ level: result.status_level || 'ok', message: result.status_message })
   }
-  return []
+  if (result.model_note) {
+    statusItems.push({ level: 'warn', message: result.model_note })
+  }
+  return statusItems
 })
 const checklistTone = computed(() => {
   if (!statusList.value.length) return 'neutral'
@@ -771,11 +783,22 @@ const processSelected = async () => {
     return
   }
 
-  const thresholdValue = Number(formInputs.value.threshold)
-  const safeThreshold =
-    formInputs.value.threshold === '' || formInputs.value.threshold === null || Number.isNaN(thresholdValue)
-      ? 5
-      : thresholdValue
+  const npkValues = [formInputs.value.n, formInputs.value.p, formInputs.value.k].map((value) => Number(value))
+  if (
+    npkValues.some((value, index) => {
+      const raw = [formInputs.value.n, formInputs.value.p, formInputs.value.k][index]
+      return raw === '' || raw === null || raw === undefined || Number.isNaN(value) || value < 0
+    })
+  ) {
+    error.value = 'โปรดระบุสูตร N-P-K ให้ครบและเป็นตัวเลขที่ไม่ติดลบ'
+    return
+  }
+  const formula = npkValues
+    .map((value) => {
+      const rounded = Math.round(value * 100) / 100
+      return Number.isInteger(rounded) ? String(rounded) : String(rounded)
+    })
+    .join('-')
 
   loading.value = true
   const useBatch = selectedFiles.value.length > 1
@@ -785,9 +808,9 @@ const processSelected = async () => {
   } else {
     formData.append('file', selectedFiles.value[0].file)
   }
-  formData.append('formula', formInputs.value.formula || '')
+  formData.append('formula', formula)
   formData.append('lot_number', formInputs.value.lotNumber || '')
-  formData.append('threshold', safeThreshold)
+  formData.append('uncoated', formInputs.value.uncoated ? 'true' : 'false')
 
   try {
     const endpoint = useBatch ? 'batch-upload' : 'upload'

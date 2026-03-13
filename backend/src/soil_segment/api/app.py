@@ -69,6 +69,7 @@ if not runtime_logger.handlers:
 
 # Global variables for models
 unet_model = None
+unet_uncoated_model = None
 npk_predictor = None
 device = None
 history_items = []
@@ -76,7 +77,8 @@ history_counter = 0
 HISTORY_CSV = HISTORY_FILE
 
 CHECKPOINT_DIR = MODELS_DIR
-UNET_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
+UNET_COATED_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
+UNET_UNCOATED_CHECKPOINT = CHECKPOINT_DIR / "best_uncoated_model.pth"
 REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.pkl"
 TARGET_SIZE = (SEGMENTATION_MODEL_SIZE, SEGMENTATION_MODEL_SIZE)
 APP_START_MONO = time.monotonic()
@@ -164,7 +166,7 @@ def _request_size_bytes() -> int:
 
 def _validate_required_model_files() -> None:
     required_models = {
-        "UNet segmentation model": UNET_CHECKPOINT,
+        "UNet segmentation model": UNET_COATED_CHECKPOINT,
         "NPK regression model": REGRESSION_CHECKPOINT,
     }
     missing = []
@@ -179,23 +181,24 @@ def _validate_required_model_files() -> None:
 
 def initialize_models():
     """Load models on startup"""
-    global unet_model, npk_predictor, device
+    global unet_model, unet_uncoated_model, npk_predictor, device
 
     # Reset globals so partial initialization does not look healthy.
     unet_model = None
+    unet_uncoated_model = None
     npk_predictor = None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     runtime_logger.info("Using device: %s", device)
 
     _validate_required_model_files()
 
-    runtime_logger.info("Loading UNet segmentation model from %s", UNET_CHECKPOINT)
+    runtime_logger.info("Loading UNet segmentation model from %s", UNET_COATED_CHECKPOINT)
     try:
-        loaded_unet = load_segmentation_model(str(UNET_CHECKPOINT), device)
+        loaded_unet = load_segmentation_model(str(UNET_COATED_CHECKPOINT), device)
     except Exception as exc:
         runtime_logger.exception(
             "UNet segmentation model load failed from %s: %s",
-            UNET_CHECKPOINT,
+            UNET_COATED_CHECKPOINT,
             exc,
         )
         raise RuntimeError("UNet segmentation model failed to load.") from exc
@@ -204,11 +207,36 @@ def initialize_models():
         load_error = getattr(loaded_unet, "_load_error", "unknown error")
         runtime_logger.error(
             "UNet segmentation model load failed from %s (fallback DummySegmenter detected): %s",
-            UNET_CHECKPOINT,
+            UNET_COATED_CHECKPOINT,
             load_error,
         )
         raise RuntimeError(f"UNet segmentation model failed to load ({load_error})")
     unet_model = loaded_unet
+
+    if UNET_UNCOATED_CHECKPOINT.exists():
+        runtime_logger.info("Loading optional uncoated UNet model from %s", UNET_UNCOATED_CHECKPOINT)
+        try:
+            loaded_uncoated = load_segmentation_model(str(UNET_UNCOATED_CHECKPOINT), device)
+            if isinstance(loaded_uncoated, DummySegmenter):
+                load_error = getattr(loaded_uncoated, "_load_error", "unknown error")
+                runtime_logger.warning(
+                    "Optional uncoated model fallback detected from %s: %s",
+                    UNET_UNCOATED_CHECKPOINT,
+                    load_error,
+                )
+            else:
+                unet_uncoated_model = loaded_uncoated
+        except Exception as exc:
+            runtime_logger.warning(
+                "Optional uncoated model failed to load from %s: %s",
+                UNET_UNCOATED_CHECKPOINT,
+                exc,
+            )
+    else:
+        runtime_logger.info(
+            "Optional uncoated model checkpoint not found yet at %s. Using coated model as placeholder.",
+            UNET_UNCOATED_CHECKPOINT,
+        )
 
     runtime_logger.info("Loading NPK regression model from %s", REGRESSION_CHECKPOINT)
     try:
@@ -291,6 +319,23 @@ def parse_float(value, default=None):
         return default
 
 
+def parse_bool(value, default=False):
+    """Parse common truthy/falsy values from form/json payloads."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def parse_npk_formula(formula: str):
     """Parse NPK formula string (e.g., '15-15-15' or '15,15,15') into a dict."""
     if not formula or not isinstance(formula, str):
@@ -310,35 +355,65 @@ def parse_npk_formula(formula: str):
         n, p, k = (float(x) for x in parts)
     except ValueError as exc:
         raise ValueError("สูตร NPK ต้องเป็นตัวเลข เช่น 15-15-15.") from exc
+    if n < 0 or p < 0 or k < 0:
+        raise ValueError("สูตร NPK ต้องเป็นค่าที่ไม่ติดลบ.")
 
     return {"N": n, "P": p, "K": k}
 
 
-def evaluate_npk_against_threshold(predicted, target, threshold_percent):
+def _allowance_for_target(nutrient: str, target_value: float) -> float:
     """
-    Compare predicted NPK values against target within the provided threshold (%).
-    Returns (status_level, message, errors_dict).
+    Fixed maximum allowance table from the QC spec.
+
+    Nutrient bands are interpreted as:
+    - band1: target < 8.0
+    - band2: 8.0 <= target <= 16.0
+    - band3: 16.0 < target <= 24.0
+    - band4: target > 24.0
     """
-    threshold = 5 if threshold_percent is None else float(threshold_percent)
+    key = "P" if nutrient == "P" else nutrient
+    if key in {"N", "P"}:
+        if target_value < 8.0:
+            return 0.4
+        if target_value <= 16.0:
+            return 0.6
+        if target_value <= 24.0:
+            return 0.8
+        return 1.0
+    if key == "K":
+        if target_value < 8.0:
+            return 0.5
+        if target_value <= 16.0:
+            return 0.8
+        if target_value <= 24.0:
+            return 1.0
+        return 1.2
+    return 1.0
+
+
+def evaluate_npk_against_allowance(predicted, target):
+    """
+    Compare predicted NPK values against fixed absolute allowances.
+    Returns (status_level, message, errors_dict, allowances_dict).
+    """
     errors = {}
-    exceeded = False
+    allowances = {}
+    exceeded_nutrients = []
 
     for key in ("N", "P", "K"):
         pred_val = float(predicted.get(key, 0.0))
         target_val = float(target.get(key, 0.0))
-
-        if target_val > 0:
-            diff = abs(pred_val - target_val) / target_val * 100.0
-        else:
-            diff = abs(pred_val - target_val)  # fallback to absolute diff when target is zero
-
+        allowance = _allowance_for_target(key, target_val)
+        diff = abs(pred_val - target_val)
         errors[key] = diff
-        if diff > threshold:
-            exceeded = True
+        allowances[key] = allowance
+        if diff > allowance:
+            exceeded_nutrients.append(key)
 
-    if exceeded:
-        return "bad", f"NPK prediction exceeds the {threshold}% threshold.", errors
-    return "ok", f"NPK prediction within the {threshold}% threshold.", errors
+    if exceeded_nutrients:
+        labels = ", ".join(exceeded_nutrients)
+        return "bad", f"NPK prediction exceeds fixed allowance for: {labels}.", errors, allowances
+    return "ok", "NPK prediction is within fixed allowance table.", errors, allowances
 
 
 def parse_ddmmyyyy(date_str):
@@ -408,29 +483,51 @@ def extract_common_inputs():
         or (json_payload or {}).get("lot_number")
         or (json_payload or {}).get("lotNumber")
     )
-    threshold = parse_float(form_payload.get("threshold") or (json_payload or {}).get("threshold"))
+    uncoated = parse_bool(
+        form_payload.get("uncoated")
+        if form_payload.get("uncoated") is not None
+        else (json_payload or {}).get("uncoated"),
+        default=False,
+    )
 
-    return formula, lot_number, threshold
+    return formula, lot_number, uncoated
 
 
-def process_image_payload(image_payload, target_npk, threshold):
+def select_segmentation_model(use_uncoated: bool):
+    """Resolve coated/uncoated model choice with placeholder fallback."""
+    if use_uncoated and unet_uncoated_model is not None:
+        return unet_uncoated_model, UNET_UNCOATED_CHECKPOINT.name, None
+    if use_uncoated:
+        return (
+            unet_model,
+            UNET_COATED_CHECKPOINT.name,
+            "Uncoated model placeholder is active. Falling back to best_model.pth.",
+        )
+    return unet_model, UNET_COATED_CHECKPOINT.name, None
+
+
+def process_image_payload(image_payload, target_npk, use_uncoated=False):
     """Run segmentation + NPK prediction for a single image payload."""
     filename = getattr(image_payload, "filename", "upload")
     start_time = time.perf_counter()
     image_hash = None
+    model_variant = UNET_COATED_CHECKPOINT.name
+    model_note = None
     inference_logger.info("image_processing_start filename=%s", filename)
     status_level = "error"
     try:
+        segmentation_model, model_variant, model_note = select_segmentation_model(use_uncoated)
         if isinstance(image_payload, str):
             image_bytes = base64.b64decode(image_payload.split(",", 1)[1])
         else:
             image_bytes = image_payload.read()
         image_hash = hashlib.sha256(image_bytes).hexdigest()
+        cache_key = f"{model_variant}:{image_hash}"
 
-        cached = _cache_get(image_hash)
+        cached = _cache_get(cache_key)
         if cached is None:
             image_np = preprocess_image(image_bytes)
-            mask = predict_segmentation(unet_model, image_np, device)
+            mask = predict_segmentation(segmentation_model, image_np, device)
             overlay = create_segmentation_overlay(image_np, mask)
             npk_values = npk_predictor.predict(image_np, mask)
             mask_pixels = int(np.sum(mask > 0))
@@ -447,29 +544,33 @@ def process_image_payload(image_payload, target_npk, threshold):
                     "image_size": f"{TARGET_SIZE[0]}x{TARGET_SIZE[1]}",
                 },
             }
-            _cache_set(image_hash, cached)
+            _cache_set(cache_key, cached)
             inference_logger.info("inference_cache miss")
         else:
             inference_logger.info("inference_cache hit")
 
-        threshold_level, threshold_message, npk_errors = evaluate_npk_against_threshold(
+        evaluation_level, evaluation_message, npk_errors, npk_allowances = evaluate_npk_against_allowance(
             cached["npk"],
             target_npk,
-            threshold,
         )
-        status_level = threshold_level
+        status_level = evaluation_level
 
-        return {
+        response = {
             "filename": filename,
             "segmentation": cached["segmentation"],
             "npk": cached["npk"],
             "status_level": status_level,
-            "status_message": threshold_message,
+            "status_message": evaluation_message,
             "passed": status_level != "bad",
             "target_npk": target_npk,
             "npk_errors": npk_errors,
+            "npk_allowances": npk_allowances,
+            "model_variant": model_variant,
             "metadata": cached["metadata"],
         }
+        if model_note:
+            response["model_note"] = model_note
+        return response
     finally:
         duration_s = time.perf_counter() - start_time
         inference_logger.info(
@@ -513,6 +614,7 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'models_loaded': unet_model is not None and npk_predictor is not None,
+        'uncoated_model_loaded': unet_uncoated_model is not None,
         'device': str(device),
         'model_size': SEGMENTATION_MODEL_SIZE,
     })
@@ -604,7 +706,7 @@ def upload_and_process():
         - image: base64 encoded image
         - formula: fertilizer NPK formula string (optional)
         - lot_number: lot identifier (optional)
-        - threshold: allowable percent error (optional)
+        - uncoated: use uncoated model variant (optional, placeholder fallback)
     
     Response:
         {
@@ -622,17 +724,16 @@ def upload_and_process():
         }
     """
     try:
-        formula, lot_number, threshold = extract_common_inputs()
+        formula, lot_number, use_uncoated = extract_common_inputs()
         target_npk = parse_npk_formula(formula)
-        threshold_value = 5 if threshold is None else threshold
 
         # Get image from request
         if 'file' in request.files:
             file = request.files['file']
-            processed = process_image_payload(file, target_npk, threshold_value)
+            processed = process_image_payload(file, target_npk, use_uncoated)
         elif request.is_json and 'image' in request.json:
             image_data = request.json['image']
-            processed = process_image_payload(image_data, target_npk, threshold_value)
+            processed = process_image_payload(image_data, target_npk, use_uncoated)
         else:
             return jsonify({'error': 'No image provided'}), 400
 
@@ -644,7 +745,8 @@ def upload_and_process():
                 'formula': formula,
                 'target_npk': target_npk,
                 'lot_number': lot_number,
-                'threshold': threshold_value
+                'uncoated': use_uncoated,
+                'model_variant': processed.get("model_variant"),
             }
         }
 
@@ -652,7 +754,7 @@ def upload_and_process():
             name=processed.get("filename"),
             formula=formula,
             lot_number=lot_number,
-            threshold=threshold_value,
+            threshold=None,
             total_images=1,
             passed_images=1 if processed["passed"] else 0,
             avg_npk=processed["npk"],
@@ -676,9 +778,8 @@ def upload_and_process():
 def batch_upload():
     """Process multiple images at once"""
     try:
-        formula, lot_number, threshold = extract_common_inputs()
+        formula, lot_number, use_uncoated = extract_common_inputs()
         target_npk = parse_npk_formula(formula)
-        threshold_value = 5 if threshold is None else threshold
         files = request.files.getlist('files')
 
         if not files:
@@ -686,7 +787,7 @@ def batch_upload():
 
         results = []
         for file in files:
-            processed = process_image_payload(file, target_npk, threshold_value)
+            processed = process_image_payload(file, target_npk, use_uncoated)
             results.append(processed)
 
         status_level = (
@@ -705,7 +806,7 @@ def batch_upload():
             name=files[0].filename or "batch upload",
             formula=formula,
             lot_number=lot_number,
-            threshold=threshold_value,
+            threshold=None,
             total_images=len(results),
             passed_images=passed_images,
             avg_npk=avg_npk,
@@ -722,8 +823,9 @@ def batch_upload():
                 'status': status_level,
                 'formula': formula,
                 'lot_number': lot_number,
-                'threshold': threshold_value,
-                'target_npk': target_npk
+                'target_npk': target_npk,
+                'uncoated': use_uncoated,
+                'model_variant': results[0].get("model_variant") if results else UNET_COATED_CHECKPOINT.name,
             }
         })
 

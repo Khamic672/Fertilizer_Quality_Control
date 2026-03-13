@@ -334,10 +334,16 @@ body,
 }
 
 .field--toggle {
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
-.field .checkbox-label {
+.model-options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.model-option-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -348,12 +354,36 @@ body,
   color: var(--navy-strong);
   font-size: 14px;
   font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
-.field .checkbox-label input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--orange);
+.model-option-btn:hover {
+  background: #eef3fb;
+  border-color: #c6d0e2;
+}
+
+.model-option-btn.active {
+  background: #fff7ed;
+  border-color: #f2a75f;
+}
+
+.model-option-tick {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 2px solid #9aa6bb;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.model-option-btn.active .model-option-tick {
+  background: var(--orange);
+  border-color: var(--orange);
 }
 
 .upload-buttons {

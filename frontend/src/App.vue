@@ -123,10 +123,28 @@
               </div>
               <div class="field field--toggle">
                 <label>Model option</label>
-                <label class="checkbox-label">
-                  <input v-model="formInputs.uncoated" type="checkbox" />
-                  <span>Uncoated</span>
-                </label>
+                <div class="model-options" role="group" aria-label="Model option">
+                  <button
+                    class="model-option-btn"
+                    :class="{ active: formInputs.modelOption === 'normal' }"
+                    :aria-pressed="formInputs.modelOption === 'normal'"
+                    type="button"
+                    @click="formInputs.modelOption = 'normal'"
+                  >
+                    <span class="model-option-tick" aria-hidden="true">{{ formInputs.modelOption === 'normal' ? '✓' : '' }}</span>
+                    <span>Normal</span>
+                  </button>
+                  <button
+                    class="model-option-btn"
+                    :class="{ active: formInputs.modelOption === 'uncoated' }"
+                    :aria-pressed="formInputs.modelOption === 'uncoated'"
+                    type="button"
+                    @click="formInputs.modelOption = 'uncoated'"
+                  >
+                    <span class="model-option-tick" aria-hidden="true">{{ formInputs.modelOption === 'uncoated' ? '✓' : '' }}</span>
+                    <span>Uncoated</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -444,7 +462,7 @@ const formInputs = ref({
   p: '',
   k: '',
   lotNumber: '',
-  uncoated: false
+  modelOption: 'normal'
 })
 const showExportModal = ref(false)
 const exportError = ref('')
@@ -810,7 +828,7 @@ const processSelected = async () => {
   }
   formData.append('formula', formula)
   formData.append('lot_number', formInputs.value.lotNumber || '')
-  formData.append('uncoated', formInputs.value.uncoated ? 'true' : 'false')
+  formData.append('uncoated', formInputs.value.modelOption === 'uncoated' ? 'true' : 'false')
 
   try {
     const endpoint = useBatch ? 'batch-upload' : 'upload'

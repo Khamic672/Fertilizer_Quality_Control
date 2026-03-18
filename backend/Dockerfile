@@ -4,11 +4,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# เลือก torch wheel index ได้ตอน build:
-# - CPU:  https://download.pytorch.org/whl/cpu
-# - CUDA: https://download.pytorch.org/whl/cu121
-ARG TORCH_WHL_INDEX=https://download.pytorch.org/whl/cpu
-
 # System libs (จำเป็นสำหรับ OpenCV/NumPy/Scikit-learn)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 libgl1 libgomp1 \
@@ -23,7 +18,6 @@ COPY backend/src /app/backend/src
 # ติดตั้ง dependency จาก pyproject และติดตั้งแบบ editable
 # และติดตั้ง gunicorn สำหรับ production server
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --index-url ${TORCH_WHL_INDEX} torch && \
     pip install --no-cache-dir -e . && \
     pip install --no-cache-dir gunicorn
 

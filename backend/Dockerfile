@@ -11,9 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# ใช้ root pyproject.toml เป็น source of truth
-COPY pyproject.toml README.md /app/
-COPY backend/src /app/backend/src
+# คัดลอกโค้ด backend ทั้งหมด (รวม pyproject.toml)
+COPY . /app
 
 # ติดตั้ง dependency จาก pyproject และติดตั้งแบบ editable
 # และติดตั้ง gunicorn สำหรับ production server
@@ -21,12 +20,8 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir -e . && \
     pip install --no-cache-dir gunicorn
 
-# คัดลอกไฟล์ runtime ของ backend
-COPY backend /app/backend
-WORKDIR /app/backend
-
 # สร้างโฟลเดอร์โมเดล (เมาท์มาจากภายนอกตอนรัน)
-RUN mkdir -p /app/backend/models
+RUN mkdir -p /app/models
 
 # ภายในคอนเทนเนอร์ใช้พอร์ต 8000
 EXPOSE 8000

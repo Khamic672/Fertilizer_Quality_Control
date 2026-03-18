@@ -163,7 +163,6 @@ VITE_API_URL=http://localhost:5000/api
 ## Docker
 
 The backend directory is containerized separately and runs behind Gunicorn.
-Docker Compose (inside `backend/`) builds with repo-root context and uses `backend/Dockerfile`.
 
 From `backend/`:
 
@@ -366,6 +365,7 @@ Test notes:
 │   ├── docker-compose.yml
 │   ├── history.csv
 │   ├── models/
+│   ├── pyproject.toml
 │   ├── src/soil_segment/
 │   │   ├── api/app.py
 │   │   ├── config.py

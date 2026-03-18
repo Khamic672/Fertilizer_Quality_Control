@@ -1,13 +1,13 @@
+version: "3.8"
+
 services:
   backend:
-    build:
-      context: ..
-      dockerfile: backend/Dockerfile
+    build: .
     container_name: soil-segment-backend
     ports:
       - "9000:8000"   # external:internal
     volumes:
-      - ./models:/app/backend/models:ro
+      - ./models:/app/models:ro
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1

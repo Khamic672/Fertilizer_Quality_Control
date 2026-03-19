@@ -109,6 +109,7 @@ gradio_cached_examples/
 .env
 .env.local
 .env.*
+!.env.example
 
 # === Test/coverage output ===
 coverage/

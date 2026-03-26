@@ -7,7 +7,7 @@ services:
     ports:
       - "9000:8000"   # external:internal
     volumes:
-      - ./models:/app/models:ro
+      - ./app_models:/app/app_models:ro
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1

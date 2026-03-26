@@ -7,7 +7,8 @@ from pathlib import Path
 
 # backend/src/soil_segment/config.py -> backend/
 BASE_DIR = Path(__file__).resolve().parents[2]
-MODELS_DIR = BASE_DIR / "models"
+APP_MODELS_DIR = BASE_DIR / "app_models"
+MODELS_DIR = APP_MODELS_DIR
 HISTORY_FILE = BASE_DIR / "history.csv"
 LOG_DIR = BASE_DIR / "logs"
 INFERENCE_LOG_FILE = LOG_DIR / "inference.log"
@@ -31,6 +32,7 @@ SEGMENTATION_ONNX_OPSET = int(os.environ.get("SEGMENTATION_ONNX_OPSET", "17"))
 
 __all__ = [
     "BASE_DIR",
+    "APP_MODELS_DIR",
     "MODELS_DIR",
     "HISTORY_FILE",
     "LOG_DIR",

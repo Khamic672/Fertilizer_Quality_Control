@@ -36,12 +36,18 @@ echo -e "${GREEN}✓ Node.js $NODE_VERSION${NC}"
 
 # Create directory structure
 echo -e "\n${YELLOW}Creating project structure...${NC}"
-mkdir -p backend/models
+mkdir -p backend/app_models
 mkdir -p backend/src/soil_segment
 mkdir -p backend/utils
 mkdir -p frontend/src/components
 mkdir -p frontend/src/assets
 mkdir -p frontend/public/examples
+mkdir -p training/interface
+mkdir -p training/src
+mkdir -p training/datasets/Unet_dataset/images
+mkdir -p training/datasets/Unet_dataset/masks
+mkdir -p training/datasets/Regression_dataset
+mkdir -p training/trained_models
 
 touch backend/src/__init__.py
 touch backend/src/soil_segment/__init__.py
@@ -60,25 +66,25 @@ cd backend
 echo -e "\n${YELLOW}Checking for model checkpoints...${NC}"
 MISSING_MODELS=0
 
-if [ ! -f "models/unet_best.pth" ]; then
-    echo -e "${RED}✗ models/unet_best.pth not found${NC}"
+if [ ! -f "app_models/best_model.pth" ]; then
+    echo -e "${RED}✗ app_models/best_model.pth not found${NC}"
     MISSING_MODELS=1
 else
     echo -e "${GREEN}✓ UNet checkpoint found${NC}"
 fi
 
-if [ ! -f "models/regression_model.pkl" ]; then
-    echo -e "${RED}✗ models/regression_model.pkl not found${NC}"
+if [ ! -f "app_models/regression_model.pkl" ]; then
+    echo -e "${RED}✗ app_models/regression_model.pkl not found${NC}"
     MISSING_MODELS=1
 else
     echo -e "${GREEN}✓ Regression model found${NC}"
 fi
 
 if [ $MISSING_MODELS -eq 1 ]; then
-    echo -e "\n${YELLOW}⚠️  Please place your model checkpoints in backend/models/${NC}"
+    echo -e "\n${YELLOW}⚠️  Please place your model checkpoints in backend/app_models/${NC}"
     echo -e "Required files:"
-    echo -e "  - backend/models/unet_best.pth"
-    echo -e "  - backend/models/regression_model.pkl"
+    echo -e "  - backend/app_models/best_model.pth"
+    echo -e "  - backend/app_models/regression_model.pkl"
     echo ""
     read -p "Continue anyway? (y/n) " -n 1 -r
     echo
@@ -89,7 +95,7 @@ fi
 
 # Install Python dependencies
 echo -e "\n${YELLOW}Installing Python dependencies...${NC}"
-pip install -q Flask flask-cors torch torchvision opencv-python Pillow numpy scikit-learn joblib
+pip install -q Flask flask-cors fastapi uvicorn python-multipart torch torchvision opencv-python Pillow numpy scikit-learn joblib openpyxl matplotlib seaborn tqdm
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Python dependencies installed${NC}"
@@ -163,5 +169,7 @@ echo -e "   ${GREEN}http://localhost:5173${NC}\n"
 if [ $MISSING_MODELS -eq 1 ]; then
     echo -e "${YELLOW}⚠️  Remember to add your model checkpoints before running!${NC}"
 fi
+
+echo -e "${YELLOW}Training UI:${NC} python3 -m uvicorn training.interface.training_server:app --reload --port 8000"
 
 echo -e "\n${BLUE}Happy analyzing! 🔬${NC}\n"

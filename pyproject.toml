@@ -31,6 +31,17 @@ onnx = [
   "onnx",
   "onnxruntime",
 ]
+training = [
+  "fastapi",
+  "matplotlib",
+  "opencv-python",
+  "python-multipart",
+  "seaborn",
+  "tomli; python_version < \"3.11\"",
+  "torchvision",
+  "tqdm",
+  "uvicorn",
+]
 
 [tool.setuptools]
 package-dir = {"" = "backend/src"}
@@ -38,3 +49,8 @@ package-dir = {"" = "backend/src"}
 [tool.setuptools.packages.find]
 where = ["backend/src"]
 include = ["soil_segment*"]
+
+[tool.soil_segment_training]
+unet_dataset = "training/datasets/Unet_dataset"
+regression_dataset = "training/datasets/Regression_dataset"
+checkpoints_dir = "training/trained_models"

@@ -21,7 +21,7 @@ RUN pip install --upgrade pip && \
     pip install --no-cache-dir gunicorn
 
 # สร้างโฟลเดอร์โมเดล (เมาท์มาจากภายนอกตอนรัน)
-RUN mkdir -p /app/models
+RUN mkdir -p /app/app_models
 
 # ภายในคอนเทนเนอร์ใช้พอร์ต 8000
 EXPOSE 8000

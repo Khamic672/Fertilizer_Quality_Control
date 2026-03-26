@@ -9,6 +9,7 @@ The handwritten application code lives in:
 - `backend/src/soil_segment/`: model loading, inference, NPK prediction, config, storage
 - `backend/src/soil_segment/api/app.py`: Flask API and request lifecycle
 - `frontend/src/App.vue`: single-page UI for upload, review, and history
+- `training/`: training UI, trainer modules, datasets, and training outputs
 - `test/test_model_predictions.py`: snapshot-style model pipeline test
 
 Compatibility wrappers exist in `backend/app.py`, `backend/history.py`, and `backend/wsgi.py`.
@@ -20,9 +21,9 @@ Generated build output in `frontend/dist/` is not the source of truth.
 ### Backend flow
 
 1. The backend starts and loads:
-   - `backend/models/best_model.pth`
-   - `backend/models/regression_model.pkl`
-   - optionally `backend/models/best_uncoated_model.pth`
+   - `backend/app_models/best_model.pth`
+   - `backend/app_models/regression_model.pkl`
+   - optionally `backend/app_models/best_uncoated_model.pth`
 2. Each uploaded image is converted to RGB and resized to `SEGMENTATION_MODEL_SIZE` (default `512`).
 3. The segmentation model predicts a pellet-class mask.
 4. The backend overlays class colors on the resized image and returns that overlay as base64 PNG.
@@ -81,16 +82,16 @@ If any nutrient exceeds its allowance, the result is marked `bad`; otherwise it 
 
 - Python `3.11+`
 - Node.js `18+`
-- Model files in `backend/models/`
+- Model files in `backend/app_models/`
 
 Required model files:
 
-- `backend/models/best_model.pth`
-- `backend/models/regression_model.pkl`
+- `backend/app_models/best_model.pth`
+- `backend/app_models/regression_model.pkl`
 
 Optional model file:
 
-- `backend/models/best_uncoated_model.pth`
+- `backend/app_models/best_uncoated_model.pth`
 
 If the optional uncoated checkpoint is missing and the UI requests `Uncoated`, the backend falls back to `best_model.pth` and returns a warning note in the response.
 
@@ -114,10 +115,16 @@ For ONNX export/runtime support:
 python3 -m pip install -e ".[onnx]"
 ```
 
+For the training UI and trainer modules:
+
+```bash
+python3 -m pip install -e ".[training]"
+```
+
 For both:
 
 ```bash
-python3 -m pip install -e ".[dev,onnx]"
+python3 -m pip install -e ".[dev,onnx,training]"
 ```
 
 The repo also includes `setup.sh`, but the maintained install path is the `pyproject.toml` flow above.
@@ -160,6 +167,22 @@ To point the frontend at a different backend, create `frontend/.env`:
 VITE_API_URL=http://localhost:5000/api
 ```
 
+### Training interface
+
+The training tools now live under `training/`. See `training/README.md` for dataset layout and upload rules.
+
+From the repo root:
+
+```bash
+python3 -m uvicorn training.interface.training_server:app --reload --port 8000
+```
+
+Default training UI URL:
+
+```text
+http://localhost:8000
+```
+
 ## Docker
 
 The backend directory is containerized separately and runs behind Gunicorn.
@@ -176,7 +199,7 @@ This exposes the API at:
 http://localhost:9000/api
 ```
 
-The compose file mounts `backend/models/` into the container read-only.
+The compose file mounts `backend/app_models/` into the container read-only.
 
 ## Runtime configuration
 
@@ -190,8 +213,8 @@ The backend reads these environment variables from `backend/src/soil_segment/con
 | `SEGMENTATION_MODEL_SIZE` | `512` | Input resize width and height |
 | `SEGMENTATION_RUNTIME` | `torch` | `torch` or `onnx` |
 | `SEGMENTATION_QUANTIZATION` | `none` | Torch dynamic quantization mode |
-| `SEGMENTATION_ONNX_PATH` | `backend/models/segmentation.onnx` | ONNX export path |
-| `SEGMENTATION_ONNX_INT8_PATH` | `backend/models/segmentation.int8.onnx` | INT8 ONNX path |
+| `SEGMENTATION_ONNX_PATH` | `backend/app_models/segmentation.onnx` | ONNX export path |
+| `SEGMENTATION_ONNX_INT8_PATH` | `backend/app_models/segmentation.int8.onnx` | INT8 ONNX path |
 | `SEGMENTATION_ONNX_EXPORT` | `auto` | `auto`, `always`, `never` |
 | `SEGMENTATION_ONNX_QUANTIZE` | `int8` | `none` or `int8` |
 | `SEGMENTATION_ONNX_CALIBRATION_DIR` | empty | Images for ONNX INT8 calibration |
@@ -364,7 +387,7 @@ Test notes:
 │   ├── Dockerfile
 │   ├── docker-compose.yml
 │   ├── history.csv
-│   ├── models/
+│   ├── app_models/
 │   ├── pyproject.toml
 │   ├── src/soil_segment/
 │   │   ├── api/app.py
@@ -381,6 +404,12 @@ Test notes:
 ├── test/
 │   ├── *.JPG
 │   └── test_model_predictions.py
+├── training/
+│   ├── interface/
+│   ├── src/
+│   ├── datasets/
+│   ├── trained_models/
+│   └── README.md
 ├── pyproject.toml
 └── README.md
 ```

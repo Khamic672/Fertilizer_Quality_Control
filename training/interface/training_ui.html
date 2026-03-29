@@ -3,462 +3,180 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>NPK Soil Segment — Training Interface</title>
+<title>NPK Soil Segment - Training Interface</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap" />
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --bg0: #080b10;
-  --bg1: #0e1118;
-  --bg2: #141720;
-  --bg3: #1c2030;
-  --border: rgba(255,255,255,0.07);
-  --border2: rgba(255,255,255,0.13);
-  --text0: #f0f2f5;
-  --text1: #9aa3b2;
-  --text2: #5c6478;
-  --green: #00d4aa;
-  --green-dim: rgba(0,212,170,0.12);
-  --green-dim2: rgba(0,212,170,0.06);
-  --amber: #f5a623;
-  --amber-dim: rgba(245,166,35,0.12);
-  --amber-dim2: rgba(245,166,35,0.06);
-  --red: #e05555;
-  --red-dim: rgba(224,85,85,0.12);
-  --blue: #4fa3e8;
-  --font-mono: 'IBM Plex Mono', monospace;
-  --font-sans: 'IBM Plex Sans', sans-serif;
-  --radius: 8px;
-  --radius-lg: 12px;
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ededed;--card:#fff;--panel:#f4f6fb;--border:#e1e6f0;--border-strong:#cfd7e6;
+  --text:#2a3446;--muted:#7b8799;--navy:#2a4d73;--navy-strong:#1f2a3d;--orange:#f28c28;
+  --green:#22c55e;--red:#ef4444;--shadow:0 12px 24px rgba(22,32,52,.1);
+  --radius:10px;--radius-lg:14px;
+  --font-sans:"Google Sans","Segoe UI",system-ui,-apple-system,sans-serif;
+  --font-mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
 }
-
-html, body { height: 100%; background: var(--bg0); color: var(--text0); font-family: var(--font-sans); font-size: 14px; }
-
-#app { display: flex; height: 100vh; overflow: hidden; }
-
-/* ---- Sidebar ---- */
-.sidebar {
-  width: 220px;
-  flex-shrink: 0;
-  background: var(--bg1);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow-y: auto;
-}
-.sidebar-logo {
-  padding: 20px 18px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.sidebar-logo .logo-main {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--green);
-  letter-spacing: 0.04em;
-}
-.sidebar-logo .logo-sub {
-  font-size: 11px;
-  color: var(--text2);
-  margin-top: 3px;
-  letter-spacing: 0.02em;
-}
-
-.nav-section { padding: 14px 10px 6px; }
-.nav-label {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text2);
-  padding: 0 8px;
-  margin-bottom: 4px;
-}
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  color: var(--text1);
-  font-size: 13px;
-  font-weight: 400;
-  transition: background 0.12s, color 0.12s;
-  user-select: none;
-}
-.nav-item:hover { background: var(--bg3); color: var(--text0); }
-.nav-item.active { background: var(--green-dim); color: var(--green); font-weight: 500; }
-.nav-item.active-amber { background: var(--amber-dim); color: var(--amber); font-weight: 500; }
-.nav-icon { width: 16px; height: 16px; opacity: 0.7; flex-shrink: 0; }
-.nav-item.active .nav-icon, .nav-item.active-amber .nav-icon { opacity: 1; }
-
-.sidebar-bottom {
-  margin-top: auto;
-  padding: 12px 10px;
-  border-top: 1px solid var(--border);
-}
-.status-pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: var(--radius);
-  font-size: 12px;
-  font-family: var(--font-mono);
-}
-.status-pill.idle { background: var(--bg3); color: var(--text2); }
-.status-pill.running { background: var(--green-dim); color: var(--green); }
-.status-pill.running-reg { background: var(--amber-dim); color: var(--amber); }
-.status-pill.error { background: var(--red-dim); color: var(--red); }
-.pulse {
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-  background: currentColor;
-}
-.pulse.anim {
-  animation: pulse 1.2s ease-in-out infinite;
-}
-@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.85)} }
-
-/* ---- Main content ---- */
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.topbar {
-  height: 52px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  padding: 0 28px;
-  gap: 14px;
-  flex-shrink: 0;
-  background: var(--bg0);
-}
-.topbar-title { font-size: 15px; font-weight: 500; color: var(--text0); }
-.topbar-sub { font-size: 12px; color: var(--text2); font-family: var(--font-mono); }
-.topbar-spacer { flex: 1; }
-.topbar-badge {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  padding: 3px 9px;
-  border-radius: 4px;
-  border: 1px solid var(--border2);
-  color: var(--text2);
-}
-
-.content { flex: 1; overflow-y: auto; padding: 28px; }
-
-/* ---- Cards ---- */
-.card {
-  background: var(--bg1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px 22px;
-  margin-bottom: 16px;
-}
-.card-title {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--text2);
-  margin-bottom: 14px;
-}
-
-/* ---- Form elements ---- */
-.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
-.form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.form-group { display: flex; flex-direction: column; gap: 5px; }
-.form-label {
-  font-size: 11px;
-  color: var(--text1);
-  font-weight: 500;
-  letter-spacing: 0.03em;
-}
-.form-input, .form-select {
-  background: var(--bg2);
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  color: var(--text0);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 7px 10px;
-  outline: none;
-  transition: border-color 0.15s;
-  width: 100%;
-  -webkit-appearance: none;
-}
-.form-input:focus, .form-select:focus { border-color: var(--green); }
-.form-input.amber:focus, .form-select.amber:focus { border-color: var(--amber); }
-.form-hint { font-size: 11px; color: var(--text2); margin-top: 2px; }
-
-.toggle-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 0;
-}
-.toggle-label { font-size: 13px; color: var(--text1); }
-.toggle {
-  position: relative; width: 36px; height: 20px; cursor: pointer;
-}
-.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
-.toggle-track {
-  position: absolute; inset: 0;
-  background: var(--bg3); border-radius: 10px;
-  border: 1px solid var(--border2);
-  transition: background 0.2s;
-}
-.toggle input:checked ~ .toggle-track { background: var(--green); border-color: var(--green); }
-.toggle-thumb {
-  position: absolute; top: 3px; left: 3px;
-  width: 14px; height: 14px;
-  background: var(--text0); border-radius: 50%;
-  transition: transform 0.2s;
-}
-.toggle input:checked ~ .toggle-track ~ .toggle-thumb { transform: translateX(16px); }
-
-/* ---- Buttons ---- */
-.btn {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 9px 18px; border-radius: var(--radius);
-  font-family: var(--font-sans); font-size: 13px; font-weight: 500;
-  cursor: pointer; border: none; outline: none;
-  transition: all 0.14s; user-select: none;
-}
-.btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.btn-primary {
-  background: var(--green); color: var(--bg0);
-}
-.btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
-.btn-amber {
-  background: var(--amber); color: var(--bg0);
-}
-.btn-amber:hover:not(:disabled) { filter: brightness(1.1); }
-.btn-danger {
-  background: var(--red-dim); color: var(--red);
-  border: 1px solid rgba(224,85,85,0.25);
-}
-.btn-danger:hover:not(:disabled) { background: rgba(224,85,85,0.2); }
-.btn-ghost {
-  background: transparent; color: var(--text1);
-  border: 1px solid var(--border2);
-}
-.btn-ghost:hover:not(:disabled) { background: var(--bg3); color: var(--text0); }
-.btn-row { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
-
-/* ---- Stats ---- */
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
-.stat-card {
-  background: var(--bg2); border-radius: var(--radius);
-  padding: 12px 14px;
-}
-.stat-label { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text2); margin-bottom: 6px; }
-.stat-value { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--text0); }
-.stat-value.green { color: var(--green); }
-.stat-value.amber { color: var(--amber); }
-.stat-sub { font-size: 11px; color: var(--text2); margin-top: 3px; font-family: var(--font-mono); }
-
-/* ---- Dataset ---- */
-.ds-row {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 0; border-bottom: 1px solid var(--border);
-}
-.ds-row:last-child { border-bottom: none; }
-.ds-name { font-size: 13px; color: var(--text0); font-family: var(--font-mono); }
-.ds-counts { display: flex; gap: 16px; }
-.ds-count {
-  font-size: 12px; font-family: var(--font-mono);
-  color: var(--text2);
-}
-.ds-count span { color: var(--text0); font-weight: 500; }
-.ds-exists-badge {
-  font-size: 10px; padding: 2px 7px; border-radius: 4px;
-  font-family: var(--font-mono); letter-spacing: 0.05em;
-}
-.ds-exists-badge.yes { background: var(--green-dim); color: var(--green); }
-.ds-exists-badge.no { background: var(--bg3); color: var(--text2); }
-
-/* ---- Drop zone ---- */
-.dropzone {
-  border: 1.5px dashed var(--border2);
-  border-radius: var(--radius-lg);
-  padding: 36px 20px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-  position: relative;
-}
-.dropzone:hover, .dropzone.drag-over {
-  border-color: var(--green);
-  background: var(--green-dim2);
-}
-.dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.drop-icon { font-size: 28px; margin-bottom: 10px; color: var(--text2); }
-.drop-title { font-size: 13px; color: var(--text1); margin-bottom: 4px; }
-.drop-sub { font-size: 11px; color: var(--text2); }
-
-.upload-selects {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;
-}
-
-/* ---- Chart area ---- */
-.chart-wrap {
-  position: relative;
-  background: var(--bg2);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  margin-bottom: 14px;
-}
-.chart-wrap canvas { max-height: 280px; }
-.chart-title {
-  font-size: 11px; font-weight: 500; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--text2); margin-bottom: 12px;
-}
-.chart-empty {
-  height: 200px; display: flex; align-items: center; justify-content: center;
-  color: var(--text2); font-size: 13px; font-family: var(--font-mono);
-}
-
-.metric-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
-.metric-badge {
-  padding: 5px 12px; border-radius: 6px;
-  font-family: var(--font-mono); font-size: 12px;
-}
-.metric-badge.tl { background: rgba(79,163,232,0.12); color: var(--blue); }
-.metric-badge.vl { background: rgba(224,85,85,0.1); color: #e07070; }
-.metric-badge.td { background: var(--green-dim); color: var(--green); }
-.metric-badge.vd { background: rgba(245,166,35,0.12); color: var(--amber); }
-
-/* ---- Log ---- */
-.log-box {
-  background: var(--bg0);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  height: 220px;
-  overflow-y: auto;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 1.7;
-  color: var(--text1);
-  scroll-behavior: smooth;
-}
-.log-line { white-space: pre-wrap; word-break: break-all; }
-.log-line.best { color: var(--green); }
-.log-line.fold { color: var(--amber); font-weight: 500; }
-.log-line.warn { color: #e0a030; }
-.log-line.err { color: var(--red); }
-.log-line.done { color: var(--green); font-weight: 500; }
-
-/* ---- Toast ---- */
-.toast-container {
-  position: fixed; bottom: 20px; right: 24px;
-  display: flex; flex-direction: column; gap: 8px;
-  z-index: 999;
-}
-.toast {
-  padding: 10px 16px; border-radius: var(--radius);
-  font-size: 13px; min-width: 220px;
-  animation: toastIn 0.2s ease;
-  border: 1px solid transparent;
-}
-.toast.success { background: var(--green-dim); color: var(--green); border-color: rgba(0,212,170,0.2); }
-.toast.error { background: var(--red-dim); color: var(--red); border-color: rgba(224,85,85,0.2); }
-.toast.info { background: var(--bg3); color: var(--text1); border-color: var(--border2); }
-@keyframes toastIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-
-/* ---- Divider ---- */
-.section-divider { height: 1px; background: var(--border); margin: 18px 0; }
-
-/* ---- Progress indicator ---- */
-.fold-indicator {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px; border-radius: var(--radius);
-  background: var(--amber-dim); color: var(--amber);
-  font-family: var(--font-mono); font-size: 12px;
-  margin-bottom: 12px;
-}
-
-.epoch-progress {
-  display: flex; align-items: center; gap: 12px;
-  padding: 8px 12px; border-radius: var(--radius);
-  background: var(--green-dim2); margin-bottom: 12px;
-}
-.epoch-bar-wrap { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
-.epoch-bar { height: 100%; background: var(--green); border-radius: 2px; transition: width 0.4s ease; }
-.epoch-label { font-family: var(--font-mono); font-size: 11px; color: var(--text1); white-space: nowrap; }
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px var(--font-sans)}
+#app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:236px;flex-shrink:0;display:flex;flex-direction:column;background:#f6f7fb;border-right:1px solid var(--border)}
+.sidebar-logo{padding:22px 18px 18px;border-bottom:1px solid var(--border)}
+.logo-main{color:var(--navy);font-size:13px;font-weight:700;letter-spacing:.06em}
+.logo-sub{margin-top:4px;color:var(--muted);font-size:11px}
+.nav-section{padding:14px 10px 8px}
+.nav-label{padding:0 8px;margin-bottom:4px;color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:var(--radius);color:#66748a;font-size:13px;font-weight:500;cursor:pointer;transition:background .14s ease,color .14s ease}
+.nav-item:hover{background:rgba(242,140,40,.08);color:var(--navy)}
+.nav-item.active{background:rgba(242,140,40,.14);color:var(--navy-strong)}
+.nav-item.active-secondary{background:rgba(42,77,115,.1);color:var(--navy-strong)}
+.nav-icon{width:16px;height:16px;opacity:.8;flex-shrink:0}
+.sidebar-bottom{margin-top:auto;padding:12px 10px 16px;border-top:1px solid var(--border)}
+.status-pill{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius);font:12px var(--font-mono)}
+.status-pill.idle{background:var(--panel);color:var(--muted)}
+.status-pill.running{background:rgba(34,197,94,.12);color:var(--green)}
+.status-pill.running-reg{background:rgba(42,77,115,.12);color:var(--navy)}
+.status-pill.error{background:rgba(239,68,68,.12);color:var(--red)}
+.pulse{width:8px;height:8px;border-radius:50%;background:currentColor}
+.pulse.anim{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.85)}}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:60px;display:flex;align-items:center;gap:14px;padding:0 28px;border-bottom:1px solid var(--border);background:#f7f8fb}
+.topbar-title{color:var(--navy);font-size:15px;font-weight:600}
+.topbar-sub{color:var(--muted);font:12px var(--font-mono)}
+.topbar-spacer{flex:1}
+.topbar-badge{padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted);font:11px var(--font-mono)}
+.content{flex:1;overflow-y:auto;padding:24px 28px 32px}
+.card{margin-bottom:16px;padding:20px 22px;border-radius:var(--radius-lg);border:1px solid var(--border);background:var(--card);box-shadow:var(--shadow)}
+.card-title{margin-bottom:14px;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.form-grid,.upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+.upload-grid{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:14px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-label{color:#617088;font-size:11px;font-weight:600;letter-spacing:.04em}
+.form-input,.form-select{width:100%;padding:9px 11px;border-radius:var(--radius);border:1px solid var(--border-strong);background:var(--panel);color:var(--text);font:13px var(--font-mono);outline:none;transition:border-color .15s ease,box-shadow .15s ease}
+.form-input:focus,.form-select:focus{border-color:var(--orange);box-shadow:0 0 0 3px rgba(242,140,40,.12)}
+.form-input.alt:focus,.form-select.alt:focus{border-color:var(--navy);box-shadow:0 0 0 3px rgba(42,77,115,.1)}
+.form-hint{color:var(--muted);font-size:11px}
+.toggle-row{display:flex;align-items:center;gap:10px;padding:6px 0}
+.toggle-label{color:#55657c;font-size:13px}
+.toggle{position:relative;width:38px;height:22px;cursor:pointer}
+.toggle input{position:absolute;opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;border-radius:999px;border:1px solid var(--border-strong);background:#dbe2ef;transition:background .2s ease,border-color .2s ease}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.16);transition:transform .2s ease}
+.toggle input:checked~.toggle-track{border-color:var(--orange);background:var(--orange)}
+.toggle input:checked~.toggle-thumb{transform:translateX(16px)}
+.btn-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:var(--radius);padding:9px 16px;font:600 13px var(--font-sans);cursor:pointer;transition:transform .12s ease,filter .12s ease,background .12s ease,color .12s ease}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn-primary{background:var(--orange);color:#fff}.btn-secondary{background:var(--navy);color:#fff}
+.btn-primary:hover:not(:disabled),.btn-secondary:hover:not(:disabled){filter:brightness(1.05)}
+.btn-danger{border:1px solid rgba(239,68,68,.18);background:rgba(239,68,68,.12);color:var(--red)}
+.btn-danger:hover:not(:disabled){background:rgba(239,68,68,.16)}
+.btn-ghost{border:1px solid var(--border);background:var(--card);color:#5f6d82}
+.btn-ghost:hover:not(:disabled){background:var(--panel);color:var(--navy)}
+.dataset-toolbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.dataset-actions,.dataset-chip-row{display:flex;gap:8px;flex-wrap:wrap}
+.dataset-root{margin-bottom:14px;color:var(--muted);font:11px var(--font-mono)}
+.dataset-list{display:grid;gap:10px}
+.dataset-row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:14px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--panel)}
+.dataset-row-main{display:flex;gap:12px;flex:1;min-width:0}
+.dataset-row input[type="checkbox"]{width:16px;height:16px;margin-top:2px;accent-color:var(--orange)}
+.dataset-name{color:var(--navy);font-size:14px;font-weight:600}
+.dataset-path{margin-top:6px;color:var(--muted);font:11px var(--font-mono);word-break:break-all}
+.dataset-metrics{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.dataset-pill{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted);font:12px var(--font-mono)}
+.dataset-pill span{color:var(--text);font-weight:600;margin-left:6px}
+.dataset-status{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;font:11px var(--font-mono);letter-spacing:.04em;text-transform:uppercase}
+.dataset-status.ready{background:rgba(34,197,94,.12);color:var(--green)}
+.dataset-status.incomplete{background:rgba(239,68,68,.1);color:var(--red)}
+.selection-panel{margin-bottom:16px;padding:14px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--panel)}
+.selection-label{color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.selection-copy{margin-top:6px;color:#55657c;font-size:13px}
+.dataset-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:rgba(42,77,115,.08);border:1px solid rgba(42,77,115,.14);color:var(--navy);font-size:12px;font-weight:600}
+.dropzone{position:relative;padding:36px 20px;text-align:center;border-radius:var(--radius-lg);border:1.5px dashed var(--border-strong);background:linear-gradient(180deg,rgba(242,140,40,.02),rgba(42,77,115,.03));cursor:pointer;transition:border-color .14s ease,background .14s ease}
+.dropzone:hover,.dropzone.drag-over{border-color:var(--orange);background:rgba(242,140,40,.08)}
+.dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.drop-icon{margin-bottom:10px;color:var(--muted)}
+.drop-title{margin-bottom:4px;color:var(--navy-strong);font-size:13px;font-weight:600}
+.drop-sub{color:var(--muted);font-size:11px}
+.chart-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.chart-wrap{position:relative;margin-bottom:14px;padding:16px;border-radius:var(--radius-lg);border:1px solid var(--border);background:var(--panel)}
+.chart-wrap canvas{max-height:280px}
+.chart-title{margin-bottom:12px;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.chart-empty{height:200px;display:flex;align-items:center;justify-content:center;color:var(--muted);font:13px var(--font-mono)}
+.metric-badges{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.metric-badge{padding:6px 12px;border-radius:999px;font:12px var(--font-mono)}
+.metric-badge.train-loss{background:rgba(42,77,115,.1);color:var(--navy)}
+.metric-badge.val-loss{background:rgba(239,68,68,.1);color:var(--red)}
+.metric-badge.train-dice{background:rgba(34,197,94,.12);color:var(--green)}
+.metric-badge.val-dice{background:rgba(242,140,40,.14);color:var(--orange)}
+.progress-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.progress-pill{padding:12px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--card);box-shadow:var(--shadow)}
+.progress-pill-label{color:var(--muted);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}
+.progress-pill-value{margin-top:6px;color:var(--navy);font-size:14px;font-weight:600}
+.log-box{height:200px;overflow-y:auto;padding:12px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--panel);color:#4f5e75;font:11.5px var(--font-mono);line-height:1.7}
+.log-line{white-space:pre-wrap;word-break:break-word}
+.log-line.done{color:var(--green);font-weight:600}.log-line.warn{color:#d99017}.log-line.err{color:var(--red)}
+.log-line.fold{color:var(--orange);font-weight:600}.log-line.meta{color:var(--navy)}
+.toast-container{position:fixed;right:24px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:999}
+.toast{min-width:220px;padding:10px 16px;border-radius:var(--radius);border:1px solid transparent;font-size:13px;animation:toast-in .2s ease}
+.toast.success{border-color:rgba(34,197,94,.2);background:rgba(34,197,94,.12);color:var(--green)}
+.toast.error{border-color:rgba(239,68,68,.18);background:rgba(239,68,68,.12);color:var(--red)}
+.toast.info{border-color:var(--border);background:var(--card);color:var(--muted)}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.section-divider{height:1px;margin:18px 0;background:var(--border)}
+@media (max-width:900px){.sidebar{width:210px}.dataset-row{flex-direction:column}.dataset-metrics{justify-content:flex-start}}
 </style>
 </head>
 <body>
 <div id="app">
-
-  <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-main">SOIL-SEGMENT</div>
       <div class="logo-sub">NPK Training Interface</div>
     </div>
-
     <div class="nav-section">
       <div class="nav-label">Data</div>
       <div class="nav-item" :class="{ active: tab === 'dataset' }" @click="tab='dataset'">
-        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <ellipse cx="8" cy="4" rx="6" ry="2"/><path d="M2 4v4c0 1.1 2.7 2 6 2s6-.9 6-2V4"/><path d="M2 8v4c0 1.1 2.7 2 6 2s6-.9 6-2V8"/>
-        </svg>
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="8" cy="4" rx="6" ry="2"/><path d="M2 4v4c0 1.1 2.7 2 6 2s6-.9 6-2V4"/><path d="M2 8v4c0 1.1 2.7 2 6 2s6-.9 6-2V8"/></svg>
         Dataset
       </div>
       <div class="nav-item" :class="{ active: tab === 'upload' }" @click="tab='upload'">
-        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M8 10V3M5 6l3-3 3 3"/><path d="M3 12h10"/>
-        </svg>
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10V3M5 6l3-3 3 3"/><path d="M3 12h10"/></svg>
         Upload files
       </div>
     </div>
-
     <div class="nav-section">
       <div class="nav-label">Training</div>
       <div class="nav-item" :class="{ active: tab === 'unet' }" @click="tab='unet'">
-        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="1" y="6" width="4" height="4" rx="1"/><rect x="11" y="6" width="4" height="4" rx="1"/><rect x="6" y="1" width="4" height="4" rx="1"/><rect x="6" y="11" width="4" height="4" rx="1"/>
-          <path d="M5 8h6M8 5v6"/>
-        </svg>
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="6" width="4" height="4" rx="1"/><rect x="11" y="6" width="4" height="4" rx="1"/><rect x="6" y="1" width="4" height="4" rx="1"/><rect x="6" y="11" width="4" height="4" rx="1"/><path d="M5 8h6M8 5v6"/></svg>
         UNet model
       </div>
-      <div class="nav-item" :class="{ 'active-amber': tab === 'regression', active: false }" @click="tab='regression'">
-        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M2 12 L5 8 L8 9 L11 5 L14 3"/><circle cx="5" cy="8" r="1.5" fill="currentColor" stroke="none"/><circle cx="8" cy="9" r="1.5" fill="currentColor" stroke="none"/>
-        </svg>
-        Regression (NPK)
+      <div class="nav-item" :class="{ 'active-secondary': tab === 'regression' }" @click="tab='regression'">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 L5 8 L8 9 L11 5 L14 3"/><circle cx="5" cy="8" r="1.5" fill="currentColor" stroke="none"/><circle cx="8" cy="9" r="1.5" fill="currentColor" stroke="none"/></svg>
+        Regression
       </div>
     </div>
-
     <div class="nav-section">
       <div class="nav-label">Monitor</div>
       <div class="nav-item" :class="{ active: tab === 'progress' }" @click="tab='progress'">
-        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M2 12 L5 7 L9 9 L13 3"/><path d="M2 14h12"/>
-        </svg>
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 L5 7 L9 9 L13 3"/><path d="M2 14h12"/></svg>
         Training progress
-        <span v-if="status.running" style="margin-left:auto;width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite;"></span>
       </div>
     </div>
-
     <div class="sidebar-bottom">
-      <div class="status-pill"
-        :class="{ running: status.running && status.mode !== 'regression', 'running-reg': status.running && status.mode === 'regression', error: !!status.error, idle: !status.running && !status.error }">
+      <div class="status-pill" :class="{ running: status.running && status.mode !== 'regression', 'running-reg': status.running && status.mode === 'regression', error: !!status.error, idle: !status.running && !status.error }">
         <span class="pulse" :class="{ anim: status.running }"></span>
         <span v-if="status.running && status.mode === 'unet'">training unet</span>
-        <span v-else-if="status.running && status.mode === 'unet_uncoated'">unet (LOO-CV)</span>
-        <span v-else-if="status.running && status.mode === 'regression'">regression</span>
+        <span v-else-if="status.running && status.mode === 'unet_uncoated'">unet loo-cv</span>
+        <span v-else-if="status.running && status.mode === 'regression'">training regression</span>
         <span v-else-if="status.error">error</span>
         <span v-else>idle</span>
       </div>
     </div>
   </aside>
 
-  <!-- Main -->
   <main class="main">
     <div class="topbar">
       <span class="topbar-title">{{ tabTitle }}</span>
@@ -468,114 +186,128 @@ html, body { height: 100%; background: var(--bg0); color: var(--text0); font-fam
     </div>
 
     <div class="content">
-
-      <!-- ==================== DATASET TAB ==================== -->
       <template v-if="tab === 'dataset'">
         <div class="card">
-          <div class="card-title">Dataset overview</div>
+          <div class="dataset-toolbar">
+            <div>
+              <div class="card-title" style="margin-bottom:6px;">Dataset overview</div>
+              <div style="font-size:13px;color:#55657c;">{{ selectedDatasets.length }} selected for UNet training</div>
+            </div>
+            <div class="dataset-actions" v-if="dsInfo">
+              <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px;" @click="selectAllDatasets">Select all</button>
+              <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px;" @click="selectCoatedDatasets">Coated</button>
+              <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px;" @click="selectUncoatedDatasets">Uncoated</button>
+              <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px;" @click="clearDatasetSelection">Clear</button>
+            </div>
+          </div>
           <template v-if="dsInfo">
-            <div v-for="(ds, key) in dsInfoDisplay" :key="key" class="ds-row">
-              <div>
-                <div class="ds-name">{{ ds.label }}</div>
-                <div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--font-mono);">{{ ds.base }}</div>
-              </div>
-              <div class="ds-counts">
-                <span class="ds-count">images: <span>{{ ds.images }}</span></span>
-                <span class="ds-count">{{ ds.secondaryLabel }}: <span>{{ ds.secondaryValue }}</span></span>
-                <span class="ds-exists-badge" :class="ds.exists ? 'yes' : 'no'">{{ ds.exists ? 'found' : 'missing' }}</span>
-              </div>
+            <div class="dataset-root">{{ dsInfo.unet_root }}</div>
+            <div class="dataset-list">
+              <label v-for="ds in availableDatasets" :key="ds.name" class="dataset-row">
+                <div class="dataset-row-main">
+                  <input type="checkbox" v-model="selectedDatasets" :value="ds.name" :disabled="!ds.trainable" />
+                  <div>
+                    <div class="dataset-name">{{ ds.name }}</div>
+                    <div class="dataset-path">{{ ds.base }}</div>
+                  </div>
+                </div>
+                <div class="dataset-metrics">
+                  <span class="dataset-pill">images<span>{{ ds.images }}</span></span>
+                  <span class="dataset-pill">masks<span>{{ ds.masks }}</span></span>
+                  <span class="dataset-status" :class="ds.trainable ? 'ready' : 'incomplete'">{{ ds.trainable ? 'ready' : 'incomplete' }}</span>
+                </div>
+              </label>
             </div>
           </template>
-          <div v-else style="color:var(--text2);font-size:13px;padding:10px 0;">Loading dataset info…</div>
+          <div v-else style="color:var(--muted);font-size:13px;padding:10px 0;">Loading dataset info...</div>
         </div>
 
         <div class="card" v-if="dsInfo">
           <div class="card-title">Checkpoints</div>
-          <div v-if="dsInfo.checkpoints.files.length === 0" style="color:var(--text2);font-size:13px;">No checkpoint files found.</div>
-          <div v-else style="display:flex;flex-wrap:wrap;gap:8px;">
-            <span v-for="f in dsInfo.checkpoints.files" :key="f"
-              style="font-family:var(--font-mono);font-size:11px;padding:3px 9px;border-radius:4px;background:var(--bg3);color:var(--text1);">
-              {{ f }}
-            </span>
+          <div v-if="dsInfo.checkpoints.files.length === 0" style="color:var(--muted);font-size:13px;">No checkpoint files found.</div>
+          <div v-else class="dataset-chip-row">
+            <span v-for="f in dsInfo.checkpoints.files" :key="f" class="dataset-chip">{{ f }}</span>
           </div>
         </div>
 
         <div class="btn-row" style="margin-top:4px;">
-          <button class="btn btn-ghost" @click="loadDatasetInfo">↻ Refresh</button>
+          <button class="btn btn-ghost" @click="loadDatasetInfo">Refresh</button>
         </div>
       </template>
 
-      <!-- ==================== UPLOAD TAB ==================== -->
       <template v-if="tab === 'upload'">
         <div class="card">
           <div class="card-title">Upload options</div>
-          <div class="upload-selects">
+          <div class="upload-grid">
             <div class="form-group">
-              <label class="form-label">Target dataset</label>
+              <label class="form-label">Target storage</label>
               <select v-model="uploadForm.dataset_type" class="form-select">
-                <option value="unet">UNet (coated)</option>
-                <option value="unet_uncoated">UNet (uncoated)</option>
-                <option value="regression">Regression (coated)</option>
-                <option value="regression_uncoated">Regression (uncoated)</option>
+                <option value="unet">UNet dataset</option>
+                <option value="regression">Regression dataset</option>
               </select>
             </div>
-            <div class="form-group">
+            <div class="form-group" v-if="!isRegressionUpload">
               <label class="form-label">File type</label>
               <select v-model="uploadForm.file_role" class="form-select">
                 <option value="images">Images</option>
-                <option v-if="!isRegressionUpload" value="masks">Masks</option>
+                <option value="masks">Masks</option>
               </select>
-              <span v-if="!isRegressionUpload" class="form-hint">Loose files go into images/ or masks/. Zip files should contain images/ and masks/ folders.</span>
-              <span v-else class="form-hint">Regression images must be grouped by formula folder like 15-15-15. Loose files need a formula directory below.</span>
+              <span class="form-hint">Zip uploads should contain images/ and masks/ folders.</span>
             </div>
-            <div v-if="isRegressionUpload" class="form-group">
-              <label class="form-label">Formula directory</label>
-              <input v-model="uploadForm.formula_dir" type="text" class="form-input" placeholder="15-15-15" />
-              <span class="form-hint">Used for loose files. Zip uploads can also preserve existing formula folders.</span>
+            <div class="form-group">
+              <label class="form-label">Dataset folder</label>
+              <template v-if="!useCustomDataset">
+                <select v-model="uploadForm.existing_dataset_name" class="form-select">
+                  <option v-for="name in availableUploadDatasetNames" :key="name" :value="name">{{ name }}</option>
+                </select>
+              </template>
+              <template v-else>
+                <input v-model="uploadForm.custom_dataset_name" type="text" class="form-input" placeholder="Type a new dataset name" />
+              </template>
+              <div class="btn-row" style="margin-top:0;">
+                <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px;" @click="useExistingDataset">Use existing</button>
+                <button class="btn btn-ghost" style="padding:6px 10px;font-size:11px;" @click="enterCustomDataset">New dataset</button>
+              </div>
+              <span class="form-hint">{{ isRegressionUpload ? 'Uploads are stored directly inside the chosen formula folder.' : 'UNet uploads are stored under dataset/images or dataset/masks.' }}</span>
             </div>
           </div>
 
-          <div class="dropzone"
-            :class="{ 'drag-over': dragging }"
-            @dragover.prevent="dragging=true"
-            @dragleave.prevent="dragging=false"
-            @drop.prevent="onDrop($event)">
+          <div class="dropzone" :class="{ 'drag-over': dragging }" @dragover.prevent="dragging=true" @dragleave.prevent="dragging=false" @drop.prevent="onDrop($event)">
             <input type="file" multiple :accept="uploadAccept" @change="onFileSelect($event)" />
             <div class="drop-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="17 8 12 3 7 8"/>
-                <line x1="12" y1="3" x2="12" y2="15"/>
-              </svg>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             </div>
             <div class="drop-title">Drop files here or click to browse</div>
-            <div class="drop-sub">{{ isRegressionUpload ? 'Supports image files or a .zip archive with formula subfolders.' : 'Supports image or mask files, or a .zip archive with images/ and masks/ folders.' }}</div>
+            <div class="drop-sub">{{ isRegressionUpload ? 'Supports image files or a zip archive.' : 'Supports image or mask files, or a zip archive with images/ and masks/.' }}</div>
           </div>
 
           <div v-if="uploadFiles.length > 0" style="margin-top:14px;">
-            <div style="font-size:11px;color:var(--text2);margin-bottom:8px;">{{ uploadFiles.length }} file(s) selected</div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
-              <span v-for="f in uploadFiles.slice(0,8)" :key="f.name"
-                style="font-family:var(--font-mono);font-size:11px;padding:3px 9px;background:var(--bg3);border-radius:4px;color:var(--text1);">
-                {{ f.name }}
-              </span>
-              <span v-if="uploadFiles.length > 8"
-                style="font-size:11px;padding:3px 9px;background:var(--bg3);border-radius:4px;color:var(--text2);">
-                +{{ uploadFiles.length - 8 }} more
-              </span>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">{{ uploadFiles.length }} file(s) selected</div>
+            <div class="dataset-chip-row" style="margin-top:0;margin-bottom:14px;">
+              <span v-for="f in uploadFiles.slice(0,8)" :key="f.name" class="dataset-chip">{{ f.name }}</span>
+              <span v-if="uploadFiles.length > 8" class="dataset-chip">+{{ uploadFiles.length - 8 }} more</span>
             </div>
             <div class="btn-row" style="margin-top:0;">
-              <button class="btn btn-primary" :disabled="uploading" @click="doUpload">
-                {{ uploading ? 'Uploading…' : 'Upload ' + uploadFiles.length + ' file(s)' }}
-              </button>
+              <button class="btn btn-primary" :disabled="uploading" @click="doUpload">{{ uploading ? 'Uploading...' : 'Upload ' + uploadFiles.length + ' file(s)' }}</button>
               <button class="btn btn-ghost" @click="uploadFiles=[]">Clear</button>
             </div>
           </div>
         </div>
       </template>
 
-      <!-- ==================== UNET TAB ==================== -->
       <template v-if="tab === 'unet'">
+        <div class="selection-panel">
+          <div class="selection-label">Training datasets</div>
+          <div class="selection-copy">{{ unet.uncoated ? 'Uncoated mode uses only checked *-uncoated folders.' : 'Standard mode uses only checked coated folders.' }}</div>
+          <div class="dataset-chip-row" style="margin-top:10px;">
+            <span v-for="ds in effectiveUnetDatasetCards" :key="ds.name" class="dataset-chip">{{ ds.name }}</span>
+            <span v-if="effectiveUnetDatasetCards.length === 0" class="dataset-chip">No matching datasets selected</span>
+          </div>
+          <div class="btn-row" style="margin-top:12px;">
+            <button class="btn btn-ghost" @click="tab='dataset'">Manage datasets</button>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-title">Mode</div>
           <div class="toggle-row">
@@ -584,106 +316,71 @@ html, body { height: 100%; background: var(--bg0); color: var(--text0); font-fam
               <span class="toggle-track"></span>
               <span class="toggle-thumb"></span>
             </label>
-            <span class="toggle-label">Uncoated mode (leave-one-out CV)</span>
+            <span class="toggle-label">Uncoated mode</span>
           </div>
-          <div v-if="unet.uncoated" style="font-size:12px;color:var(--text2);margin-top:6px;line-height:1.6;">
-            Trains {{ unet.uncoated_epochs }} epochs per fold with LOO-CV. Uses patch-based sampling. Optionally warm-starts from coated best_model.pth.
+          <div v-if="unet.uncoated" style="font-size:12px;color:var(--muted);margin-top:6px;line-height:1.6;">
+            Uses patch-based training with leave-one-out cross validation on the reduced uncoated label set.
           </div>
         </div>
 
         <div class="card">
-          <div class="card-title">{{ unet.uncoated ? 'Uncoated hyperparameters' : 'Default mode hyperparameters' }}</div>
-          <template v-if="!unet.uncoated">
-            <div class="form-grid">
-              <div class="form-group">
-                <label class="form-label">Image size (px)</label>
-                <input v-model.number="unet.img_size" type="number" class="form-input" step="32" min="128" max="1024" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Batch size</label>
-                <input v-model.number="unet.batch_size" type="number" class="form-input" min="1" max="32" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Max epochs</label>
-                <input v-model.number="unet.epochs" type="number" class="form-input" min="1" max="2000" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Early stopping patience</label>
-                <input v-model.number="unet.patience" type="number" class="form-input" min="1" max="500" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Learning rate</label>
-                <input v-model="unet.learning_rate" type="text" class="form-input" placeholder="1e-3" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Weight decay</label>
-                <input v-model="unet.weight_decay" type="text" class="form-input" placeholder="1e-4" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Random seed</label>
-                <input v-model.number="unet.seed" type="number" class="form-input" />
-              </div>
-            </div>
-          </template>
-
-          <template v-else>
-            <div class="form-grid">
-              <div class="form-group">
-                <label class="form-label">Patch size (px)</label>
-                <input v-model.number="unet.patch_size" type="number" class="form-input" step="32" min="128" max="1024" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Patches per image</label>
-                <input v-model.number="unet.patches_per_image" type="number" class="form-input" min="8" max="256" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Batch size</label>
-                <input v-model.number="unet.uncoated_batch_size" type="number" class="form-input" min="1" max="32" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Epochs per fold</label>
-                <input v-model.number="unet.uncoated_epochs" type="number" class="form-input" min="1" max="1000" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Patience per fold</label>
-                <input v-model.number="unet.uncoated_patience" type="number" class="form-input" min="1" max="300" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Learning rate</label>
-                <input v-model="unet.uncoated_learning_rate" type="text" class="form-input" placeholder="1e-4" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Weight decay</label>
-                <input v-model="unet.uncoated_weight_decay" type="text" class="form-input" placeholder="1e-4" />
-              </div>
-              <div class="form-group">
-                <label class="form-label">Init checkpoint (optional)</label>
-                <input v-model="unet.uncoated_init_checkpoint" type="text" class="form-input" placeholder="auto (uses best_model.pth)" />
-                <span class="form-hint">Leave blank to auto-use coated best_model.pth</span>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Random seed</label>
-                <input v-model.number="unet.seed" type="number" class="form-input" />
-              </div>
-            </div>
-          </template>
+          <div class="card-title">{{ unet.uncoated ? 'Uncoated patch + CV settings' : 'Training hyperparameters' }}</div>
+          <div v-if="!unet.uncoated" class="form-grid">
+            <div class="form-group"><label class="form-label">Image size (px)</label><input v-model.number="unet.img_size" type="number" class="form-input" step="32" min="128" max="1024" /></div>
+            <div class="form-group"><label class="form-label">Batch size</label><input v-model.number="unet.batch_size" type="number" class="form-input" min="1" max="32" /></div>
+            <div class="form-group"><label class="form-label">Max epochs</label><input v-model.number="unet.epochs" type="number" class="form-input" min="1" max="2000" /></div>
+            <div class="form-group"><label class="form-label">Early stopping patience</label><input v-model.number="unet.patience" type="number" class="form-input" min="1" max="500" /></div>
+            <div class="form-group"><label class="form-label">Learning rate</label><input v-model="unet.learning_rate" type="text" class="form-input" placeholder="1e-3" /></div>
+            <div class="form-group"><label class="form-label">Weight decay</label><input v-model="unet.weight_decay" type="text" class="form-input" placeholder="1e-4" /></div>
+            <div class="form-group"><label class="form-label">Random seed</label><input v-model.number="unet.seed" type="number" class="form-input" /></div>
+          </div>
+          <div v-else class="form-grid">
+            <div class="form-group"><label class="form-label">Patch size (px)</label><input v-model.number="unet.patch_size" type="number" class="form-input" step="32" min="128" max="1024" /></div>
+            <div class="form-group"><label class="form-label">Patches per image</label><input v-model.number="unet.patches_per_image" type="number" class="form-input" min="1" max="512" /></div>
+            <div class="form-group"><label class="form-label">Batch size</label><input v-model.number="unet.uncoated_batch_size" type="number" class="form-input" min="1" max="64" /></div>
+            <div class="form-group"><label class="form-label">Epochs per fold</label><input v-model.number="unet.uncoated_epochs" type="number" class="form-input" min="1" max="2000" /></div>
+            <div class="form-group"><label class="form-label">Patience per fold</label><input v-model.number="unet.uncoated_patience" type="number" class="form-input" min="1" max="500" /></div>
+            <div class="form-group"><label class="form-label">Learning rate</label><input v-model="unet.uncoated_learning_rate" type="text" class="form-input" placeholder="1e-4" /></div>
+            <div class="form-group"><label class="form-label">Weight decay</label><input v-model="unet.uncoated_weight_decay" type="text" class="form-input" placeholder="1e-4" /></div>
+            <div class="form-group"><label class="form-label">Init checkpoint (optional)</label><input v-model="unet.uncoated_init_checkpoint" type="text" class="form-input" placeholder="D:\\path\\to\\TR3-29-2026.pth" /><span class="form-hint">Optional full path to a coated checkpoint for warm start.</span></div>
+            <div class="form-group"><label class="form-label">Random seed</label><input v-model.number="unet.seed" type="number" class="form-input" /></div>
+          </div>
         </div>
 
         <div class="btn-row">
-          <button class="btn btn-primary" :disabled="status.running" @click="startUnet">
-            ▶ Start training
-          </button>
-          <button class="btn btn-danger" :disabled="!status.running" @click="stopTraining">
-            ■ Stop
-          </button>
-          <span v-if="status.running" style="font-size:12px;color:var(--text1);font-family:var(--font-mono);">
-            training in progress…
-          </span>
+          <button class="btn btn-primary" :disabled="status.running || !effectiveUnetDatasetNames.length" @click="startUnet">Start training</button>
+          <button class="btn btn-danger" :disabled="!status.running" @click="stopTraining">Stop</button>
+          <span v-if="status.running" style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">training in progress...</span>
         </div>
       </template>
 
-      <!-- ==================== REGRESSION TAB ==================== -->
       <template v-if="tab === 'regression'">
+        <div class="selection-panel">
+          <div class="selection-label">Regression source datasets</div>
+          <div class="selection-copy">{{ reg.uncoated ? 'Uncoated regression uses only checked *-uncoated folders.' : 'Standard regression uses only checked coated folders.' }}</div>
+          <div class="dataset-chip-row" style="margin-top:10px;">
+            <span v-for="ds in effectiveRegressionDatasetCards" :key="ds.name" class="dataset-chip">{{ ds.name }}</span>
+            <span v-if="effectiveRegressionDatasetCards.length === 0" class="dataset-chip">No matching datasets selected</span>
+          </div>
+          <div class="btn-row" style="margin-top:12px;">
+            <button class="btn btn-ghost" @click="tab='dataset'">Manage datasets</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Model selection</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">UNet checkpoint for regression</label>
+              <select v-model="reg.checkpoint" class="form-select alt">
+                <option value="">Auto (default checkpoint)</option>
+                <option v-for="name in availableRegressionModels" :key="name" :value="name">{{ name }}</option>
+              </select>
+              <span class="form-hint">Used to generate segmentation features before fitting the regressor.</span>
+            </div>
+          </div>
+        </div>
+
         <div class="card">
           <div class="card-title">Mode</div>
           <div class="toggle-row">
@@ -699,118 +396,63 @@ html, body { height: 100%; background: var(--bg0); color: var(--text0); font-fam
         <div class="card">
           <div class="card-title">Regressor settings</div>
           <div class="form-grid">
-            <div class="form-group">
-              <label class="form-label">Polynomial degree</label>
-              <select v-model.number="reg.degree" class="form-select amber">
-                <option :value="1">1 — Linear</option>
-                <option :value="2">2 — Quadratic</option>
-                <option :value="3">3 — Cubic</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Ridge alpha (λ)</label>
-              <input v-model="reg.alpha" type="text" class="form-input amber" placeholder="1.0" />
-              <span class="form-hint">Regularisation strength (ignored if no-ridge)</span>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Validation split</label>
-              <input v-model.number="reg.test_size" type="number" class="form-input amber" step="0.05" min="0.05" max="0.5" />
-              <span class="form-hint">Fraction of data held out for validation</span>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Image size (px)</label>
-              <input v-model.number="reg.img_size" type="number" class="form-input amber" step="32" min="128" max="1024" />
-              <span class="form-hint">Should match UNet training img_size</span>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Max images (optional)</label>
-              <input v-model="reg.max_images_str" type="text" class="form-input amber" placeholder="all" />
-              <span class="form-hint">Leave blank to use all images</span>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Random seed</label>
-              <input v-model.number="reg.seed" type="number" class="form-input amber" />
-            </div>
+            <div class="form-group"><label class="form-label">Polynomial degree</label><select v-model.number="reg.degree" class="form-select alt"><option :value="1">1 - Linear</option><option :value="2">2 - Quadratic</option><option :value="3">3 - Cubic</option></select></div>
+            <div class="form-group"><label class="form-label">Ridge alpha</label><input v-model="reg.alpha" type="text" class="form-input alt" placeholder="1.0" /><span class="form-hint">Regularization strength (ignored if no-ridge).</span></div>
+            <div class="form-group"><label class="form-label">Validation split</label><input v-model.number="reg.test_size" type="number" class="form-input alt" step="0.05" min="0.05" max="0.5" /><span class="form-hint">Fraction of data held out for validation.</span></div>
+            <div class="form-group"><label class="form-label">Image size (px)</label><input v-model.number="reg.img_size" type="number" class="form-input alt" step="32" min="128" max="1024" /><span class="form-hint">Should match UNet training image size.</span></div>
+            <div class="form-group"><label class="form-label">Max images (optional)</label><input v-model="reg.max_images_str" type="text" class="form-input alt" placeholder="all" /><span class="form-hint">Leave blank to use all images.</span></div>
+            <div class="form-group"><label class="form-label">Random seed</label><input v-model.number="reg.seed" type="number" class="form-input alt" /></div>
           </div>
 
           <div class="section-divider"></div>
-
           <div style="display:flex;gap:24px;flex-wrap:wrap;">
-            <div class="toggle-row">
-              <label class="toggle">
-                <input type="checkbox" v-model="reg.no_ridge" />
-                <span class="toggle-track"></span>
-                <span class="toggle-thumb"></span>
-              </label>
-              <span class="toggle-label">No Ridge (plain LinearRegression)</span>
-            </div>
-            <div class="toggle-row">
-              <label class="toggle">
-                <input type="checkbox" v-model="reg.no_scaling" />
-                <span class="toggle-track"></span>
-                <span class="toggle-thumb"></span>
-              </label>
-              <span class="toggle-label">No feature scaling</span>
-            </div>
-            <div class="toggle-row">
-              <label class="toggle">
-                <input type="checkbox" v-model="reg.cpu" />
-                <span class="toggle-track"></span>
-                <span class="toggle-thumb"></span>
-              </label>
-              <span class="toggle-label">Force CPU inference</span>
-            </div>
+            <div class="toggle-row"><label class="toggle"><input type="checkbox" v-model="reg.no_ridge" /><span class="toggle-track"></span><span class="toggle-thumb"></span></label><span class="toggle-label">No Ridge (plain LinearRegression)</span></div>
+            <div class="toggle-row"><label class="toggle"><input type="checkbox" v-model="reg.no_scaling" /><span class="toggle-track"></span><span class="toggle-thumb"></span></label><span class="toggle-label">No feature scaling</span></div>
+            <div class="toggle-row"><label class="toggle"><input type="checkbox" v-model="reg.cpu" /><span class="toggle-track"></span><span class="toggle-thumb"></span></label><span class="toggle-label">Force CPU inference</span></div>
           </div>
         </div>
 
         <div class="btn-row">
-          <button class="btn btn-amber" :disabled="status.running" @click="startRegression">
-            ▶ Train regression
-          </button>
-          <button class="btn btn-danger" :disabled="!status.running" @click="stopTraining">
-            ■ Stop
-          </button>
-          <span v-if="status.running && status.mode === 'regression'" style="font-size:12px;color:var(--amber);font-family:var(--font-mono);">
-            regression training…
-          </span>
+          <button class="btn btn-secondary" :disabled="status.running || !effectiveRegressionDatasetNames.length" @click="startRegression">Train regression</button>
+          <button class="btn btn-danger" :disabled="!status.running" @click="stopTraining">Stop</button>
+          <span v-if="status.running && status.mode === 'regression'" style="font-size:12px;color:var(--navy);font-family:var(--font-mono);">regression training...</span>
         </div>
       </template>
 
-      <!-- ==================== PROGRESS TAB ==================== -->
       <template v-if="tab === 'progress'">
-
-        <div v-if="status.running || latestMetric" class="epoch-progress" v-show="status.mode !== 'regression'">
-          <div class="epoch-bar-wrap">
-            <div class="epoch-bar" :style="{ width: epochPct + '%' }"></div>
-          </div>
-          <span class="epoch-label">
-            Epoch {{ latestMetric ? latestMetric.epoch : 0 }} / {{ latestMetric ? latestMetric.max_epoch : (unet.uncoated ? unet.uncoated_epochs : unet.epochs) }}
-            <template v-if="status.fold"> · fold {{ status.fold }}/{{ status.total_folds }}</template>
-          </span>
+        <div class="progress-summary">
+          <div class="progress-pill"><div class="progress-pill-label">Mode</div><div class="progress-pill-value">{{ progressModeLabel }}</div></div>
+          <div class="progress-pill"><div class="progress-pill-label">Epoch</div><div class="progress-pill-value">{{ latestMetric ? latestMetric.epoch + ' / ' + latestMetric.max_epoch : (status.running ? 'waiting...' : '--') }}</div></div>
+          <div class="progress-pill"><div class="progress-pill-label">Fold</div><div class="progress-pill-value">{{ status.fold && status.total_folds ? status.fold + ' / ' + status.total_folds : '--' }}</div></div>
+          <div class="progress-pill"><div class="progress-pill-label">Batch</div><div class="progress-pill-value">{{ progressBatchLabel }}</div></div>
+          <div class="progress-pill"><div class="progress-pill-label">Datasets</div><div class="progress-pill-value">{{ activeProgressDatasets.length }}</div></div>
         </div>
 
-        <div v-if="status.fold" class="fold-indicator">
-          <span>LOO-CV</span>
-          <span>Fold {{ status.fold }} / {{ status.total_folds }}</span>
+        <div v-if="activeProgressDatasets.length" class="selection-panel">
+          <div class="selection-label">Current selection</div>
+          <div class="dataset-chip-row" style="margin-top:10px;">
+            <span v-for="name in activeProgressDatasets" :key="name" class="dataset-chip">{{ name }}</span>
+          </div>
         </div>
 
         <div v-if="latestMetric" class="metric-badges">
-          <span class="metric-badge tl">Train loss {{ latestMetric.train_loss.toFixed(4) }}</span>
-          <span class="metric-badge vl">Val loss {{ latestMetric.val_loss.toFixed(4) }}</span>
-          <span class="metric-badge td">Train Dice {{ latestMetric.train_dice.toFixed(4) }}</span>
-          <span class="metric-badge vd">Val Dice {{ latestMetric.val_dice.toFixed(4) }}</span>
+          <span class="metric-badge train-loss">train loss {{ latestMetric.train_loss.toFixed(4) }}</span>
+          <span class="metric-badge val-loss">val loss {{ latestMetric.val_loss.toFixed(4) }}</span>
+          <span class="metric-badge train-dice">train dice {{ latestMetric.train_dice.toFixed(4) }}</span>
+          <span class="metric-badge val-dice">val dice {{ latestMetric.val_dice.toFixed(4) }}</span>
         </div>
 
-        <div class="chart-wrap">
-          <div class="chart-title">Loss over epochs</div>
-          <div v-if="status.metrics.length === 0" class="chart-empty">no data yet — start training to see metrics</div>
-          <canvas v-else id="chart-loss"></canvas>
-        </div>
-
-        <div class="chart-wrap">
-          <div class="chart-title">Dice score over epochs</div>
-          <div v-if="status.metrics.length === 0" class="chart-empty">—</div>
-          <canvas v-else id="chart-dice"></canvas>
+        <div class="chart-grid">
+          <div class="chart-wrap">
+            <div class="chart-title">Loss over epochs</div>
+            <div v-if="status.metrics.length === 0" class="chart-empty">{{ status.running ? 'Waiting for the first epoch to finish...' : 'No data yet - start training to see metrics.' }}</div>
+            <canvas v-else id="chart-loss"></canvas>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-title">Dice score over epochs</div>
+            <div v-if="status.metrics.length === 0" class="chart-empty">{{ status.running ? 'Metrics will appear after epoch 1 completes.' : 'No data yet.' }}</div>
+            <canvas v-else id="chart-dice"></canvas>
+          </div>
         </div>
 
         <div class="card">
@@ -819,248 +461,417 @@ html, body { height: 100%; background: var(--bg0); color: var(--text0); font-fam
             <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;" @click="clearMetrics">Clear</button>
           </div>
           <div class="log-box" ref="logBox">
-            <div v-if="status.log.length === 0" style="color:var(--text2);">Waiting for output…</div>
-            <div v-for="(line, i) in status.log" :key="i" class="log-line" :class="logClass(line)">{{ line }}</div>
+            <div v-if="displayLog.length === 0" style="color:var(--muted);">{{ status.running ? 'Process started. Waiting for log output...' : 'Waiting for output...' }}</div>
+            <div v-for="(line, i) in displayLog" :key="i" class="log-line" :class="logClass(line)">{{ line }}</div>
           </div>
         </div>
 
-        <div v-if="status.completed && !status.running" style="padding:12px 16px;border-radius:var(--radius);background:var(--green-dim);color:var(--green);font-family:var(--font-mono);font-size:13px;margin-top:4px;">
-          ✓ Training completed successfully
-        </div>
-        <div v-if="status.error" style="padding:12px 16px;border-radius:var(--radius);background:var(--red-dim);color:var(--red);font-family:var(--font-mono);font-size:13px;margin-top:4px;">
-          ✗ {{ status.error }}
-        </div>
+        <div v-if="status.completed && !status.running" style="padding:12px 16px;border-radius:var(--radius);background:rgba(34,197,94,.12);color:var(--green);font-family:var(--font-mono);font-size:13px;margin-top:4px;">Training completed successfully</div>
+        <div v-if="status.error" style="padding:12px 16px;border-radius:var(--radius);background:rgba(239,68,68,.12);color:var(--red);font-family:var(--font-mono);font-size:13px;margin-top:4px;">{{ status.error }}</div>
       </template>
-
-    </div><!-- /content -->
+    </div>
   </main>
 
-  <!-- Toasts -->
   <div class="toast-container">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">{{ t.msg }}</div>
   </div>
-
 </div>
-
 <script>
 const { createApp, ref, shallowRef, computed, watch, onMounted, nextTick } = Vue;
 
 const API = window.location.origin;
+const DATASET_SELECTION_KEY = "soil-segment-training.selected-datasets";
 
 createApp({
   setup() {
-    const tab = ref('dataset');
+    const tab = ref("dataset");
     const dragging = ref(false);
     const uploading = ref(false);
     const uploadFiles = ref([]);
     const dsInfo = ref(null);
     const toasts = ref([]);
     const logBox = ref(null);
+    const useCustomDataset = ref(false);
+    const selectedDatasets = ref([]);
 
     const lossChart = shallowRef(null);
     const diceChart = shallowRef(null);
 
     const status = ref({
-      running: false, mode: null, fold: null, total_folds: null,
-      metrics: [], log: [], completed: false, error: null
+      running: false,
+      mode: null,
+      fold: null,
+      total_folds: null,
+      phase: null,
+      batch: null,
+      total_batches: null,
+      metrics: [],
+      log: [],
+      completed: false,
+      error: null,
+      selected_datasets: [],
     });
 
     const unet = ref({
-      uncoated: false, seed: 42,
-      img_size: 512, batch_size: 4, epochs: 300, patience: 50,
-      learning_rate: '1e-3', weight_decay: '1e-4',
-      patch_size: 512, patches_per_image: 64,
-      uncoated_batch_size: 4, uncoated_epochs: 160, uncoated_patience: 30,
-      uncoated_learning_rate: '1e-4', uncoated_weight_decay: '1e-4',
-      uncoated_init_checkpoint: ''
+      uncoated: false,
+      seed: 42,
+      img_size: 512,
+      batch_size: 4,
+      epochs: 300,
+      patience: 50,
+      learning_rate: "1e-3",
+      weight_decay: "1e-4",
+      patch_size: 512,
+      patches_per_image: 32,
+      uncoated_batch_size: 4,
+      uncoated_epochs: 160,
+      uncoated_patience: 30,
+      uncoated_learning_rate: "1e-4",
+      uncoated_weight_decay: "1e-4",
+      uncoated_init_checkpoint: "",
     });
 
     const reg = ref({
-      uncoated: false, img_size: 512,
-      degree: 1, alpha: '1.0', no_ridge: false, no_scaling: false,
-      test_size: 0.2, seed: 42, max_images_str: '', cpu: false
+      checkpoint: "",
+      uncoated: false,
+      img_size: 512,
+      degree: 1,
+      alpha: "1.0",
+      no_ridge: false,
+      no_scaling: false,
+      test_size: 0.2,
+      seed: 42,
+      max_images_str: "",
+      cpu: false,
     });
 
-    const uploadForm = ref({ dataset_type: 'unet', file_role: 'images', formula_dir: '' });
-    const serverUrl = ref(API);
+    const uploadForm = ref({
+      dataset_type: "unet",
+      file_role: "images",
+      existing_dataset_name: "",
+      custom_dataset_name: "",
+    });
 
+    const serverUrl = ref(API);
     let pollTimer = null;
     let prevMetricLen = 0;
 
-    // ---- computed ----
     const tabTitle = computed(() => ({
-      dataset: 'Dataset overview', upload: 'Upload files',
-      unet: 'UNet training', regression: 'Regression — NPK prediction', progress: 'Training progress'
-    }[tab.value] || ''));
+      dataset: "Dataset overview",
+      upload: "Upload files",
+      unet: "UNet training",
+      regression: "Regression training",
+      progress: "Training progress",
+    }[tab.value] || ""));
 
     const tabSub = computed(() => ({
-      dataset: 'view dataset directories and checkpoint files',
-      upload: 'add images and masks to your dataset',
-      unet: 'configure and launch segmentation training',
-      regression: 'train the NPK regression model from UNet outputs',
-      progress: 'live metrics and log output'
-    }[tab.value] || ''));
+      dataset: "view formula datasets and choose what UNet trains on",
+      upload: "send files into an existing or new dataset folder",
+      unet: "configure and launch segmentation training",
+      regression: "train the NPK regressor from UNet outputs",
+      progress: "compact metrics and recent log output",
+    }[tab.value] || ""));
 
-    const isRegressionUpload = computed(() =>
-      uploadForm.value.dataset_type.startsWith('regression')
+    const isRegressionUpload = computed(() => uploadForm.value.dataset_type === "regression");
+    const availableDatasets = computed(() => dsInfo.value?.datasets ?? []);
+    const trainableDatasets = computed(() => availableDatasets.value.filter((dataset) => dataset.trainable));
+    const availableUploadDatasetNames = computed(() => {
+      const unetNames = availableDatasets.value.map((dataset) => dataset.name);
+      if (!isRegressionUpload.value) return unetNames;
+
+      const regressionNames = (dsInfo.value?.regression_datasets ?? []).map((dataset) => dataset.name);
+      return [...new Set([...unetNames, ...regressionNames])].sort((a, b) => a.localeCompare(b));
+    });
+    const availableRegressionModels = computed(() =>
+      (dsInfo.value?.checkpoints?.files ?? []).filter((name) =>
+        name.toLowerCase().endsWith(".pth") &&
+        !/^best_model(?:_uncoated)?\.pth$/i.test(name)
+      )
     );
-
+    const selectedDatasetCards = computed(() =>
+      selectedDatasets.value
+        .map((name) => availableDatasets.value.find((dataset) => dataset.name === name))
+        .filter(Boolean)
+    );
+    function filterModeDatasetNames(names, useUncoated) {
+      const datasetMap = new Map(availableDatasets.value.map((dataset) => [dataset.name, dataset]));
+      return (names || []).filter((name) => {
+        const dataset = datasetMap.get(name);
+        return dataset && Boolean(dataset.uncoated) === Boolean(useUncoated);
+      });
+    }
+    const effectiveUnetDatasetNames = computed(() => filterModeDatasetNames(selectedDatasets.value, unet.value.uncoated));
+    const effectiveRegressionDatasetNames = computed(() => filterModeDatasetNames(selectedDatasets.value, reg.value.uncoated));
+    const effectiveUnetDatasetCards = computed(() =>
+      effectiveUnetDatasetNames.value
+        .map((name) => availableDatasets.value.find((dataset) => dataset.name === name))
+        .filter(Boolean)
+    );
+    const effectiveRegressionDatasetCards = computed(() =>
+      effectiveRegressionDatasetNames.value
+        .map((name) => availableDatasets.value.find((dataset) => dataset.name === name))
+        .filter(Boolean)
+    );
     const uploadAccept = computed(() => {
-      if (isRegressionUpload.value) return '.zip,.jpg,.jpeg,.png,.bmp,.tif,.tiff';
-      return uploadForm.value.file_role === 'masks'
-        ? '.zip,.png,.jpg,.jpeg'
-        : '.zip,.jpg,.jpeg,.png,.bmp,.tif,.tiff';
+      if (isRegressionUpload.value) return ".zip,.jpg,.jpeg,.png,.bmp,.tif,.tiff";
+      return uploadForm.value.file_role === "masks"
+        ? ".zip,.png,.jpg,.jpeg"
+        : ".zip,.jpg,.jpeg,.png,.bmp,.tif,.tiff";
     });
-
-    const dsInfoDisplay = computed(() => {
-      if (!dsInfo.value) return {};
-      const d = dsInfo.value;
-      return {
-        unet: { ...d.unet, label: 'Unet_dataset (coated)', secondaryLabel: 'masks', secondaryValue: d.unet.masks ?? 0 },
-        unet_uncoated: { ...d.unet_uncoated, label: 'Unet_dataset_uncoated', secondaryLabel: 'masks', secondaryValue: d.unet_uncoated.masks ?? 0 },
-        regression: { ...d.regression, label: 'Regression_dataset (coated)', secondaryLabel: 'formulas', secondaryValue: d.regression.formulas ?? 0 },
-        regression_uncoated: { ...d.regression_uncoated, label: 'Regression_dataset_uncoated', secondaryLabel: 'formulas', secondaryValue: d.regression_uncoated.formulas ?? 0 },
-      };
-    });
-
     const latestMetric = computed(() => {
-      const m = status.value.metrics;
-      return m.length > 0 ? m[m.length - 1] : null;
+      const metrics = status.value.metrics;
+      return metrics.length ? metrics[metrics.length - 1] : null;
     });
-
-    const epochPct = computed(() => {
-      if (!latestMetric.value) return 0;
-      const max = latestMetric.value.max_epoch || (unet.value.uncoated ? unet.value.uncoated_epochs : unet.value.epochs);
-      return Math.min(100, (latestMetric.value.epoch / max) * 100);
-    });
-
-    // ---- api helpers ----
-    async function api(method, path, body) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' } };
-      if (body) opts.body = JSON.stringify(body);
-      const r = await fetch(API + path, opts);
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({ detail: r.statusText }));
-        throw new Error(err.detail || r.statusText);
+    const displayLog = computed(() => status.value.log.slice(-80));
+    const activeProgressDatasets = computed(() => {
+      if (status.value.selected_datasets && status.value.selected_datasets.length) {
+        return status.value.selected_datasets;
       }
-      return r.json();
+      if (tab.value === "unet") return effectiveUnetDatasetNames.value;
+      if (tab.value === "regression") return effectiveRegressionDatasetNames.value;
+      return status.value.running || status.value.completed ? [] : selectedDatasets.value;
+    });
+    const progressModeLabel = computed(() => {
+      if (status.value.mode === "unet_uncoated") return "UNet LOO-CV";
+      if (status.value.mode === "unet") return "UNet";
+      if (status.value.mode === "regression") return "Regression";
+      return status.value.running ? "Running" : "Idle";
+    });
+    const progressBatchLabel = computed(() => {
+      if (!status.value.batch || !status.value.total_batches) {
+        return status.value.running ? "waiting..." : "--";
+      }
+      const phase = status.value.phase ? status.value.phase.toUpperCase() + " " : "";
+      return `${phase}${status.value.batch} / ${status.value.total_batches}`;
+    });
+
+    async function api(method, path, body) {
+      const options = { method, headers: { "Content-Type": "application/json" } };
+      if (body) options.body = JSON.stringify(body);
+      const response = await fetch(API + path, options);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(error.detail || response.statusText);
+      }
+      return response.json();
     }
 
-    function toast(msg, type = 'info', ms = 3500) {
-      const id = Date.now();
+    function toast(msg, type = "info", ms = 3500) {
+      const id = Date.now() + Math.random();
       toasts.value.push({ id, msg, type });
-      setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, ms);
+      setTimeout(() => {
+        toasts.value = toasts.value.filter((item) => item.id !== id);
+      }, ms);
     }
 
-    // ---- dataset ----
+    function normalizeSelectedDatasets(names) {
+      const allowed = new Set(trainableDatasets.value.map((dataset) => dataset.name));
+      return [...new Set((names || []).filter((name) => allowed.has(name)))];
+    }
+
+    function persistSelectedDatasets() {
+      try {
+        localStorage.setItem(DATASET_SELECTION_KEY, JSON.stringify(selectedDatasets.value));
+      } catch (_) {}
+    }
+
+    function hydrateSelectedDatasets() {
+      let stored = [];
+      try {
+        stored = JSON.parse(localStorage.getItem(DATASET_SELECTION_KEY) || "[]");
+      } catch (_) {
+        stored = [];
+      }
+      const normalized = normalizeSelectedDatasets(stored);
+      selectedDatasets.value = normalized.length
+        ? normalized
+        : trainableDatasets.value.map((dataset) => dataset.name);
+    }
+
+    function selectAllDatasets() {
+      selectedDatasets.value = trainableDatasets.value.map((dataset) => dataset.name);
+    }
+
+    function selectCoatedDatasets() {
+      selectedDatasets.value = trainableDatasets.value
+        .filter((dataset) => !dataset.uncoated)
+        .map((dataset) => dataset.name);
+    }
+
+    function selectUncoatedDatasets() {
+      selectedDatasets.value = trainableDatasets.value
+        .filter((dataset) => dataset.uncoated)
+        .map((dataset) => dataset.name);
+    }
+
+    function clearDatasetSelection() {
+      selectedDatasets.value = [];
+    }
+
+    function useExistingDataset() {
+      useCustomDataset.value = false;
+      if (!uploadForm.value.existing_dataset_name && availableUploadDatasetNames.value.length) {
+        uploadForm.value.existing_dataset_name = availableUploadDatasetNames.value[0];
+      }
+    }
+
+    function enterCustomDataset() {
+      useCustomDataset.value = true;
+      if (!uploadForm.value.custom_dataset_name) {
+        uploadForm.value.custom_dataset_name = uploadForm.value.existing_dataset_name || "";
+      }
+    }
+
     async function loadDatasetInfo() {
-      try { dsInfo.value = await api('GET', '/api/dataset/info'); }
-      catch (e) { toast('Could not load dataset info: ' + e.message, 'error'); }
+      try {
+        dsInfo.value = await api("GET", "/api/dataset/info");
+        if (!uploadForm.value.existing_dataset_name && availableUploadDatasetNames.value.length) {
+          uploadForm.value.existing_dataset_name = availableUploadDatasetNames.value[0];
+        } else if (
+          uploadForm.value.existing_dataset_name &&
+          !availableUploadDatasetNames.value.includes(uploadForm.value.existing_dataset_name)
+        ) {
+          uploadForm.value.existing_dataset_name = availableUploadDatasetNames.value[0] || "";
+        }
+        hydrateSelectedDatasets();
+      } catch (error) {
+        toast("Could not load dataset info: " + error.message, "error");
+      }
     }
 
-    // ---- upload ----
-    function onFileSelect(e) { uploadFiles.value = Array.from(e.target.files); }
-    function onDrop(e) {
+    function onFileSelect(event) {
+      uploadFiles.value = Array.from(event.target.files);
+    }
+
+    function onDrop(event) {
       dragging.value = false;
-      uploadFiles.value = Array.from(e.dataTransfer.files);
+      uploadFiles.value = Array.from(event.dataTransfer.files);
     }
 
     async function doUpload() {
       if (!uploadFiles.value.length) return;
+      const datasetName = (useCustomDataset.value ? uploadForm.value.custom_dataset_name : uploadForm.value.existing_dataset_name).trim();
+      if (!datasetName) {
+        toast("Choose or type a dataset name before uploading.", "error");
+        return;
+      }
+
       uploading.value = true;
       try {
-        if (isRegressionUpload.value) {
-          const hasZip = uploadFiles.value.some((f) => f.name.toLowerCase().endsWith('.zip'));
-          if (!hasZip && !uploadForm.value.formula_dir.trim()) {
-            throw new Error('Regression uploads need a formula directory such as 15-15-15.');
-          }
-        }
-        const fd = new FormData();
-        uploadFiles.value.forEach(f => fd.append('files', f));
-        fd.append('dataset_type', uploadForm.value.dataset_type);
-        fd.append('file_role', isRegressionUpload.value ? 'images' : uploadForm.value.file_role);
-        fd.append('formula_dir', uploadForm.value.formula_dir || '');
-        const r = await fetch(API + '/api/dataset/upload', { method: 'POST', body: fd });
-        if (!r.ok) throw new Error((await r.json()).detail);
-        const res = await r.json();
-        toast(`Uploaded ${res.saved.length} file(s)`, 'success');
+        const formData = new FormData();
+        uploadFiles.value.forEach((file) => formData.append("files", file));
+        formData.append("dataset_type", uploadForm.value.dataset_type);
+        formData.append("dataset_name", datasetName);
+        formData.append("file_role", isRegressionUpload.value ? "images" : uploadForm.value.file_role);
+
+        const response = await fetch(API + "/api/dataset/upload", { method: "POST", body: formData });
+        if (!response.ok) throw new Error((await response.json()).detail);
+        const result = await response.json();
+        toast(`Uploaded ${result.saved.length} file(s) to ${result.dataset}`, "success");
         uploadFiles.value = [];
+        uploadForm.value.existing_dataset_name = datasetName;
         await loadDatasetInfo();
-      } catch (e) {
-        toast('Upload failed: ' + e.message, 'error');
+      } catch (error) {
+        toast("Upload failed: " + error.message, "error");
       } finally {
         uploading.value = false;
       }
     }
 
-    // ---- training ----
-    function parseFloat_(v) { const n = parseFloat(v); return isNaN(n) ? v : n; }
+    function parseFloatValue(value) {
+      const parsed = parseFloat(value);
+      return Number.isNaN(parsed) ? value : parsed;
+    }
 
     async function startUnet() {
+      if (!effectiveUnetDatasetNames.value.length) {
+        toast(unet.value.uncoated ? "Select at least one uncoated dataset in the Dataset tab." : "Select at least one coated dataset in the Dataset tab.", "error");
+        return;
+      }
+
       try {
-        const p = {
+        const payload = {
           ...unet.value,
-          learning_rate: parseFloat_(unet.value.learning_rate),
-          weight_decay: parseFloat_(unet.value.weight_decay),
-          uncoated_learning_rate: parseFloat_(unet.value.uncoated_learning_rate),
-          uncoated_weight_decay: parseFloat_(unet.value.uncoated_weight_decay),
-          uncoated_init_checkpoint: unet.value.uncoated_init_checkpoint || null,
+          datasets: [...effectiveUnetDatasetNames.value],
+          learning_rate: parseFloatValue(unet.value.learning_rate),
+          weight_decay: parseFloatValue(unet.value.weight_decay),
+          uncoated_learning_rate: parseFloatValue(unet.value.uncoated_learning_rate),
+          uncoated_weight_decay: parseFloatValue(unet.value.uncoated_weight_decay),
+          uncoated_init_checkpoint: unet.value.uncoated_init_checkpoint.trim() || null,
         };
-        await api('POST', '/api/train/unet/start', p);
-        toast('UNet training started', 'success');
-        tab.value = 'progress';
+        await api("POST", "/api/train/unet/start", payload);
+        toast("UNet training started", "success");
+        tab.value = "progress";
         startPolling();
-      } catch (e) { toast(e.message, 'error'); }
+      } catch (error) {
+        toast(error.message, "error");
+      }
     }
 
     async function startRegression() {
+      if (!effectiveRegressionDatasetNames.value.length) {
+        toast(reg.value.uncoated ? "Select at least one uncoated dataset in the Dataset tab." : "Select at least one coated dataset in the Dataset tab.", "error");
+        return;
+      }
+
       try {
-        const p = {
+        const payload = {
           ...reg.value,
-          alpha: parseFloat_(reg.value.alpha),
-          max_images: reg.value.max_images_str ? parseInt(reg.value.max_images_str) : null,
+          checkpoint: reg.value.checkpoint || null,
+          datasets: [...effectiveRegressionDatasetNames.value],
+          alpha: parseFloatValue(reg.value.alpha),
+          max_images: reg.value.max_images_str ? parseInt(reg.value.max_images_str, 10) : null,
         };
-        delete p.max_images_str;
-        await api('POST', '/api/train/regression/start', p);
-        toast('Regression training started', 'success');
-        tab.value = 'progress';
+        delete payload.max_images_str;
+        await api("POST", "/api/train/regression/start", payload);
+        toast("Regression training started", "success");
+        tab.value = "progress";
         startPolling();
-      } catch (e) { toast(e.message, 'error'); }
+      } catch (error) {
+        toast(error.message, "error");
+      }
     }
 
     async function stopTraining() {
       try {
-        await api('POST', '/api/train/stop');
-        toast('Training stopped', 'info');
+        await api("POST", "/api/train/stop");
+        toast("Training stopped", "info");
         stopPolling();
-      } catch (e) { toast(e.message, 'error'); }
+      } catch (error) {
+        toast(error.message, "error");
+      }
     }
 
     async function clearMetrics() {
-      await api('DELETE', '/api/train/clear').catch(() => {});
+      await api("DELETE", "/api/train/clear").catch(() => {});
       prevMetricLen = 0;
       status.value.metrics = [];
       status.value.log = [];
+      status.value.phase = null;
+      status.value.batch = null;
+      status.value.total_batches = null;
       status.value.error = null;
       status.value.completed = false;
+      status.value.selected_datasets = [];
       destroyCharts();
     }
 
-    // ---- polling ----
     async function pollStatus() {
       try {
-        const s = await api('GET', '/api/train/status');
-        status.value = s;
-        if (!s.running) stopPolling();
+        const nextStatus = await api("GET", "/api/train/status");
+        status.value = nextStatus;
+        if (!nextStatus.running) stopPolling();
 
-        if (s.metrics.length !== prevMetricLen) {
-          prevMetricLen = s.metrics.length;
+        if (nextStatus.metrics.length !== prevMetricLen) {
+          prevMetricLen = nextStatus.metrics.length;
           await nextTick();
-          updateCharts(s.metrics);
+          updateCharts(nextStatus.metrics);
         }
 
         await nextTick();
-        if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight;
+        if (logBox.value) {
+          logBox.value.scrollTop = logBox.value.scrollHeight;
+        }
       } catch (_) {}
     }
 
@@ -1074,121 +885,163 @@ createApp({
       pollTimer = null;
     }
 
-    // ---- charts ----
     function destroyCharts() {
-      if (lossChart.value) { lossChart.value.destroy(); lossChart.value = null; }
-      if (diceChart.value) { diceChart.value.destroy(); diceChart.value = null; }
+      if (lossChart.value) {
+        lossChart.value.destroy();
+        lossChart.value = null;
+      }
+      if (diceChart.value) {
+        diceChart.value.destroy();
+        diceChart.value = null;
+      }
     }
 
     const chartDefaults = {
-      responsive: true, maintainAspectRatio: true, animation: false,
-      plugins: { legend: { labels: { color: '#9aa3b2', font: { family: 'IBM Plex Mono', size: 11 }, boxWidth: 14 } } },
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: false,
+      plugins: {
+        legend: {
+          labels: {
+            color: "#5f6d82",
+            font: { family: "SFMono-Regular, Consolas, monospace", size: 11 },
+            boxWidth: 14,
+          },
+        },
+      },
       scales: {
-        x: { ticks: { color: '#5c6478', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
-        y: { ticks: { color: '#5c6478', font: { family: 'IBM Plex Mono', size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
-      }
+        x: {
+          ticks: { color: "#8b97a9", font: { family: "SFMono-Regular, Consolas, monospace", size: 10 } },
+          grid: { color: "rgba(42, 77, 115, 0.08)" },
+        },
+        y: {
+          ticks: { color: "#8b97a9", font: { family: "SFMono-Regular, Consolas, monospace", size: 10 } },
+          grid: { color: "rgba(42, 77, 115, 0.08)" },
+        },
+      },
     };
 
     function metricSeries(metrics, key) {
-      return metrics.map((m) => {
-        const value = Number(m[key]);
+      return metrics.map((metric) => {
+        const value = Number(metric[key]);
         return Number.isFinite(value) ? value : null;
       });
     }
 
     function updateCharts(metrics) {
-      if (metrics.length === 0) return;
-      const labels = metrics.map(m => m.fold ? `F${m.fold}:${m.epoch}` : `${m.epoch}`);
-      const tl = metricSeries(metrics, 'train_loss');
-      const vl = metricSeries(metrics, 'val_loss');
-      const td = metricSeries(metrics, 'train_dice');
-      const vd = metricSeries(metrics, 'val_dice');
+      if (!metrics.length) return;
 
-      const lEl = document.getElementById('chart-loss');
-      const dEl = document.getElementById('chart-dice');
-      if (!lEl || !dEl) return;
+      const labels = metrics.map((metric) => (metric.fold ? `F${metric.fold}:${metric.epoch}` : `${metric.epoch}`));
+      const trainLoss = metricSeries(metrics, "train_loss");
+      const valLoss = metricSeries(metrics, "val_loss");
+      const trainDice = metricSeries(metrics, "train_dice");
+      const valDice = metricSeries(metrics, "val_dice");
 
-      if (lossChart.value && lossChart.value.canvas !== lEl) {
+      const lossElement = document.getElementById("chart-loss");
+      const diceElement = document.getElementById("chart-dice");
+      if (!lossElement || !diceElement) return;
+
+      if (lossChart.value && lossChart.value.canvas !== lossElement) {
         lossChart.value.destroy();
         lossChart.value = null;
       }
-      if (diceChart.value && diceChart.value.canvas !== dEl) {
+      if (diceChart.value && diceChart.value.canvas !== diceElement) {
         diceChart.value.destroy();
         diceChart.value = null;
       }
 
-      const lData = {
+      const lossData = {
         labels,
         datasets: [
-          { label: 'train loss', data: tl, borderColor: '#4fa3e8', backgroundColor: 'rgba(79,163,232,0.08)', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true },
-          { label: 'val loss', data: vl, borderColor: '#e07070', backgroundColor: 'rgba(224,112,112,0.08)', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true },
-        ]
+          { label: "train loss", data: trainLoss, borderColor: "#2a4d73", backgroundColor: "rgba(42, 77, 115, 0.08)", borderWidth: 1.6, pointRadius: 0, tension: 0.28, fill: true },
+          { label: "val loss", data: valLoss, borderColor: "#ef4444", backgroundColor: "rgba(239, 68, 68, 0.08)", borderWidth: 1.6, pointRadius: 0, tension: 0.28, fill: true },
+        ],
       };
-      const dData = {
+      const diceData = {
         labels,
         datasets: [
-          { label: 'train dice', data: td, borderColor: '#00d4aa', backgroundColor: 'rgba(0,212,170,0.08)', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true },
-          { label: 'val dice', data: vd, borderColor: '#f5a623', backgroundColor: 'rgba(245,166,35,0.08)', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true },
-        ]
+          { label: "train dice", data: trainDice, borderColor: "#22c55e", backgroundColor: "rgba(34, 197, 94, 0.08)", borderWidth: 1.6, pointRadius: 0, tension: 0.28, fill: true },
+          { label: "val dice", data: valDice, borderColor: "#f28c28", backgroundColor: "rgba(242, 140, 40, 0.08)", borderWidth: 1.6, pointRadius: 0, tension: 0.28, fill: true },
+        ],
       };
 
       if (!lossChart.value) {
-        lossChart.value = new Chart(lEl, { type: 'line', data: lData, options: { ...chartDefaults } });
+        lossChart.value = new Chart(lossElement, { type: "line", data: lossData, options: { ...chartDefaults } });
       } else {
         lossChart.value.data.labels = labels;
-        lossChart.value.data.datasets[0].data = tl;
-        lossChart.value.data.datasets[1].data = vl;
+        lossChart.value.data.datasets[0].data = trainLoss;
+        lossChart.value.data.datasets[1].data = valLoss;
         lossChart.value.update();
       }
+
       if (!diceChart.value) {
-        diceChart.value = new Chart(dEl, { type: 'line', data: dData, options: { ...chartDefaults } });
+        diceChart.value = new Chart(diceElement, { type: "line", data: diceData, options: { ...chartDefaults } });
       } else {
         diceChart.value.data.labels = labels;
-        diceChart.value.data.datasets[0].data = td;
-        diceChart.value.data.datasets[1].data = vd;
+        diceChart.value.data.datasets[0].data = trainDice;
+        diceChart.value.data.datasets[1].data = valDice;
         diceChart.value.update();
       }
     }
 
-    // ---- log coloring ----
     function logClass(line) {
-      if (line.includes('[BEST]') || line.includes('Training Complete') || line.includes('✓')) return 'done';
-      if (line.includes('[WARN]') || line.includes('WARN')) return 'warn';
-      if (line.includes('Error') || line.includes('error') || line.includes('Traceback')) return 'err';
-      if (line.match(/^Fold\s+\d+/)) return 'fold';
-      return '';
+      if (line.startsWith("[DATASET]")) return "meta";
+      if (line.includes("[BEST]") || line.includes("[OK]") || line.includes("Training complete")) return "done";
+      if (line.includes("[WARN]") || line.includes("Warning")) return "warn";
+      if (line.includes("Traceback") || line.includes("Error") || line.includes("[ERROR]") || line.includes("error")) return "err";
+      if (/^Fold\s+\d+/.test(line)) return "fold";
+      return "";
     }
 
-    // ---- lifecycle ----
+    watch(selectedDatasets, () => {
+      persistSelectedDatasets();
+    }, { deep: true });
+
+    watch(() => uploadForm.value.dataset_type, (value) => {
+      if (value === "regression") {
+        uploadForm.value.file_role = "images";
+      }
+      if (!useCustomDataset.value) {
+        if (!uploadForm.value.existing_dataset_name && availableUploadDatasetNames.value.length) {
+          uploadForm.value.existing_dataset_name = availableUploadDatasetNames.value[0];
+        } else if (
+          uploadForm.value.existing_dataset_name &&
+          !availableUploadDatasetNames.value.includes(uploadForm.value.existing_dataset_name)
+        ) {
+          uploadForm.value.existing_dataset_name = availableUploadDatasetNames.value[0] || "";
+        }
+      }
+    });
+
+    watch(tab, async (nextTab) => {
+      if (nextTab !== "progress") {
+        destroyCharts();
+        return;
+      }
+      if (status.value.metrics.length) {
+        await nextTick();
+        updateCharts(status.value.metrics);
+      }
+    });
+
     onMounted(async () => {
       await loadDatasetInfo();
       await pollStatus();
       if (status.value.running) startPolling();
     });
 
-    // re-draw when switching to progress tab
-    watch(tab, async (t) => {
-      if (t !== 'progress') {
-        destroyCharts();
-        return;
-      }
-      if (status.value.metrics.length > 0) {
-        await nextTick();
-        updateCharts(status.value.metrics);
-      }
-    });
-
     return {
-      tab, tabTitle, tabSub, dragging, uploading,
-      uploadFiles, uploadForm, dsInfo, dsInfoDisplay, toasts, logBox, serverUrl,
-      status, unet, reg,
-      latestMetric, epochPct,
-      loadDatasetInfo, onFileSelect, onDrop, doUpload,
-      startUnet, startRegression, stopTraining, clearMetrics,
-      uploadAccept, isRegressionUpload, logClass
+      tab, dragging, uploading, uploadFiles, uploadForm, dsInfo, toasts, logBox, useCustomDataset, selectedDatasets,
+      status, unet, reg, serverUrl, tabTitle, tabSub, isRegressionUpload, availableDatasets, availableUploadDatasetNames,
+      availableRegressionModels,
+      selectedDatasetCards, effectiveUnetDatasetNames, effectiveRegressionDatasetNames, effectiveUnetDatasetCards,
+      effectiveRegressionDatasetCards, uploadAccept, latestMetric, displayLog, activeProgressDatasets, progressModeLabel, progressBatchLabel,
+      loadDatasetInfo, onFileSelect, onDrop, doUpload, startUnet, startRegression, stopTraining, clearMetrics,
+      selectAllDatasets, selectCoatedDatasets, selectUncoatedDatasets, clearDatasetSelection, useExistingDataset,
+      enterCustomDataset, logClass,
     };
-  }
-}).mount('#app');
+  },
+}).mount("#app");
 </script>
 </body>
 </html>

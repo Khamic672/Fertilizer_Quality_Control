@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -41,6 +43,14 @@ def append_name_suffix(path: Path, suffix: str) -> Path:
     return path.with_name(f"{path.name}{suffix}")
 
 
+def build_dated_artifact_name(prefix: str, extension: str, *, uncoated: bool = False) -> str:
+    now = datetime.now()
+    stem = f"{prefix}{now.month}-{now.day}-{now.year}"
+    if uncoated:
+        stem += "-uncoated"
+    return f"{stem}{extension}"
+
+
 # ============================================================================
 # DATA CLASSES
 # ============================================================================
@@ -64,7 +74,7 @@ class NutrientBreakdown:
 # ============================================================================
 
 # Updated class names to match the training script exactly
-DEFAULT_CLASS_NAMES = (
+COATED_CLASS_NAMES = (
     "background",
     "Black_DAP",
     "Red_MOP",
@@ -72,6 +82,12 @@ DEFAULT_CLASS_NAMES = (
     "White_Boron",
     "White_Mg",
     "Yellow_Urea_coated",
+    "Yellow_Urea_uncoated",
+)
+UNCOATED_CLASS_NAMES = (
+    "background",
+    "Black_DAP",
+    "Red_MOP",
     "Yellow_Urea_uncoated",
 )
 
@@ -198,6 +214,16 @@ def resolve_checkpoint_path(
 
     if path is None:
         candidates.append(checkpoints_dir / best_name)
+        dated_candidates = sorted(
+            (
+                candidate
+                for candidate in checkpoints_dir.glob("TR*.pth")
+                if ("-uncoated" in candidate.name.lower()) == ("uncoated" in model_suffix.lower())
+            ),
+            key=lambda candidate: candidate.stat().st_mtime,
+            reverse=True,
+        )
+        candidates.extend(dated_candidates)
     else:
         path = Path(path)
         candidates.append(path)
@@ -238,13 +264,13 @@ def load_unet_model(checkpoint_path: Path, device: str) -> Tuple[SimpleUNet, int
     model.load_state_dict(state_dict)
     model.eval().to(device)
 
-    print(f"✓ Loaded UNet with {num_classes} classes")
+    print(f"[OK] Loaded UNet with {num_classes} classes")
     
     # Print epoch info if available
     if "epoch" in checkpoint:
-        print(f"✓ Checkpoint from epoch {checkpoint['epoch'] + 1}")
+        print(f"[OK] Checkpoint from epoch {checkpoint['epoch'] + 1}")
     if "best_dice" in checkpoint:
-        print(f"✓ Best validation Dice: {checkpoint['best_dice']:.4f}")
+        print(f"[OK] Best validation Dice: {checkpoint['best_dice']:.4f}")
 
     return model, num_classes
 
@@ -327,19 +353,26 @@ def load_class_names(num_classes: int, class_json: Optional[Path] = None) -> Lis
         try:
             data = json.loads(class_file.read_text())
             names = data.get("class_names", []) or []
-            print(f"✓ Loaded {len(names)} class names from {class_file}")
+            print(f"[OK] Loaded {len(names)} class names from {class_file}")
         except json.JSONDecodeError:
-            print(f"⚠ Failed to parse {class_file}, using defaults")
+            print(f"[WARN] Failed to parse {class_file}, using defaults")
             names = []
 
     if not names:
-        names = list(DEFAULT_CLASS_NAMES)
-        print(f"✓ Using default class names ({len(names)} classes)")
+        names = list(
+            UNCOATED_CLASS_NAMES
+            if num_classes == len(UNCOATED_CLASS_NAMES)
+            else COATED_CLASS_NAMES
+        )
+        print(f"[OK] Using default class names ({len(names)} classes)")
+    elif num_classes == len(UNCOATED_CLASS_NAMES):
+        names = list(UNCOATED_CLASS_NAMES)
+        print(f"[OK] Using uncoated class names ({len(names)} classes)")
 
     # Ensure we have enough names
     if len(names) < num_classes:
         names.extend(f"Class_{idx}" for idx in range(len(names), num_classes))
-        print(f"⚠ Extended class names to {num_classes} classes")
+        print(f"[WARN] Extended class names to {num_classes} classes")
 
     return names[:num_classes]
 
@@ -388,7 +421,7 @@ def get_npk_from_mask(
     breakdown = calculate_nutrient_breakdown(stats)
     
     if breakdown.unmapped_classes:
-        print(f"⚠ Warning: Unmapped classes: {breakdown.unmapped_classes}")
+        print(f"[WARN] Unmapped classes: {breakdown.unmapped_classes}")
     
     if include_all_nutrients:
         return [float(breakdown.totals[key]) for key in NUTRIENT_KEYS]
@@ -405,7 +438,7 @@ def _parse_npk_from_path(path_str: str) -> List[int]:
     Parse NPK values from directory name
     
     Expected format: .../N-P-K/image.jpg
-    Example: .../10-15-20/sample1.jpg → [10, 15, 20]
+    Example: .../10-15-20/sample1.jpg -> [10, 15, 20]
     """
     p = Path(path_str)
     
@@ -482,7 +515,9 @@ def auto_detect_image_folders(base_path: Optional[Path]) -> Tuple[List[List[str]
     if base_path is None:
         # Use config paths
         data_paths = get_data_paths()
+        _register_candidate(data_paths["unet_dataset"])
         _register_candidate(data_paths["regression_dataset"])
+        _register_candidate(PROJECT_ROOT / "training" / "datasets" / "Unet_dataset")
         _register_candidate(PROJECT_ROOT / "training" / "datasets" / "Regression_dataset")
         _register_candidate(PROJECT_ROOT / "datasets" / "regression_dataset")
     else:
@@ -501,20 +536,20 @@ def auto_detect_image_folders(base_path: Optional[Path]) -> Tuple[List[List[str]
 
     resolved_base: Optional[Path] = None
     
-    print("\nSearching for regression dataset...")
+    print("\nSearching for regression source dataset...")
     for candidate in candidate_paths:
         print(f"  Checking: {candidate}")
         if candidate.exists() and candidate.is_dir():
             img_path_list = _collect_image_paths(candidate)
             if img_path_list:
                 resolved_base = candidate.resolve()
-                print(f"  ✓ Found {len(img_path_list)} NPK formulas")
+                print(f"  [OK] Found {len(img_path_list)} NPK formulas")
                 break
         else:
             print(f"    (not found)")
 
     if not resolved_base:
-        print("  ✗ No valid dataset found")
+        print("  [ERROR] No valid dataset found")
 
     return img_path_list, resolved_base
 
@@ -594,7 +629,7 @@ def prepare_regression_data(
 
     # Report errors
     if errors:
-        print(f"\n⚠ Encountered {len(errors)} errors:")
+        print(f"\n[WARN] Encountered {len(errors)} errors:")
         for err in errors[:5]:  # Show first 5
             print(f"  {err}")
         if len(errors) > 5:
@@ -605,7 +640,7 @@ def prepare_regression_data(
             "No regression samples prepared. Check dataset paths and labels."
         )
 
-    print(f"\n✓ Successfully processed {len(approx_npk)}/{len(flattened)} images")
+    print(f"\n[OK] Successfully processed {len(approx_npk)}/{len(flattened)} images")
 
     return (
         np.asarray(approx_npk, dtype=np.float32),
@@ -739,7 +774,7 @@ def train_regressor_with_holdout(
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(final_model, save_path)
-        print(f"✓ Model saved to: {save_path}")
+        print(f"[OK] Model saved to: {save_path}")
 
     metrics = {
         "val_mae": val_mae,
@@ -764,7 +799,7 @@ def print_regression_metrics(
     print(f"Val samples: {metrics['val_sample_count']}")
     print(f"{'-'*70}")
     
-    print(f"{'Nutrient':<10} {'MAE':<12} {'RMSE':<12} {'R²':<12}")
+    print(f"{'Nutrient':<10} {'MAE':<12} {'RMSE':<12} {'R2':<12}")
     print(f"{'-'*70}")
     
     for label, mae, rmse, r2 in zip(
@@ -821,21 +856,21 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--dataset",
         type=Path,
         default=None,
-        help="Path to regression dataset directory",
+        help="Path to the formula dataset directory used for regression source images",
     )
     
     parser.add_argument(
         "--checkpoint",
         type=Path,
         default=None,
-        help="Path to UNet checkpoint (.pth). Defaults to checkpoints/best_model.pth",
+        help="Path to UNet checkpoint (.pth). Defaults to the newest matching checkpoint in the checkpoints directory",
     )
     
     parser.add_argument(
         "--output",
         type=Path,
         default=None,
-        help="Where to save regression_model.pkl",
+        help="Where to save the trained regression model (.pkl)",
     )
 
     parser.add_argument(
@@ -922,7 +957,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     suffix = "_uncoated" if args.uncoated else ""
     paths = get_data_paths()
-    default_dataset = append_name_suffix(Path(paths["regression_dataset"]), suffix)
+    default_dataset = Path(paths["unet_dataset"])
     default_checkpoints = append_name_suffix(Path(paths["checkpoints"]), suffix)
     dataset_arg = args.dataset or default_dataset
     
@@ -939,13 +974,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Find dataset
     img_path_list, dataset_root = auto_detect_image_folders(dataset_arg)
     if not img_path_list or dataset_root is None:
-        print("✗ No valid image folders found for regression training")
+        print("[ERROR] No valid image folders found for regression training")
         return 1
 
-    print(f"✓ Using dataset: {dataset_root}")
-    print(f"✓ Found {len(img_path_list)} NPK formulas")
+    print(f"[OK] Using dataset: {dataset_root}")
+    print(f"[OK] Found {len(img_path_list)} NPK formulas")
     total_images = sum(len(paths) for paths in img_path_list)
-    print(f"✓ Total images: {total_images}")
+    print(f"[OK] Total images: {total_images}")
 
     # Load UNet model
     checkpoint_path = resolve_checkpoint_path(
@@ -957,11 +992,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Load class names
     class_names = load_class_names(num_classes)
-    print(f"✓ Using {len(class_names)} classes: {class_names}")
+    print(f"[OK] Using {len(class_names)} classes: {class_names}")
 
     # Build transform
     transform = build_unet_transform(args.img_size)
-    print(f"✓ Image size for inference: {args.img_size}x{args.img_size}")
+    print(f"[OK] Image size for inference: {args.img_size}x{args.img_size}")
 
     # Prepare regression data
     approx_npk, actual_npk, used_paths = prepare_regression_data(
@@ -977,8 +1012,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Determine output path
     output_path = args.output
+    compatibility_output_path = None
     if output_path is None:
-        output_path = default_checkpoints / f"regression_model{suffix}.pkl"
+        output_path = default_checkpoints / build_dated_artifact_name("RE", ".pkl", uncoated=args.uncoated)
+        compatibility_output_path = default_checkpoints / f"regression_model{suffix}.pkl"
 
     # Train regressor
     regressor, metrics, holdout_results = train_regressor_with_holdout(
@@ -992,6 +1029,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         test_size=args.test_size,
         random_state=args.seed,
     )
+
+    if compatibility_output_path and compatibility_output_path != output_path:
+        compatibility_output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(output_path, compatibility_output_path)
+        print(f"[OK] Compatibility copy saved to: {compatibility_output_path}")
 
     # Print results
     print_regression_metrics(metrics)
@@ -1011,12 +1053,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     full_r2 = r2_score(actual_npk, all_predictions, multioutput='raw_values')
     
     for label, mae, rmse, r2 in zip(["N", "P", "K"], full_mae, full_rmse, full_r2):
-        print(f"{label}: MAE={mae:.4f}, RMSE={rmse:.4f}, R²={r2:.4f}")
+        print(f"{label}: MAE={mae:.4f}, RMSE={rmse:.4f}, R2={r2:.4f}")
     
     print("="*70 + "\n")
 
-    print("✓ Training complete!")
-    print(f"✓ Model saved to: {output_path}")
+    print("[OK] Training complete!")
+    print(f"[OK] Model saved to: {output_path}")
     
     return 0
 

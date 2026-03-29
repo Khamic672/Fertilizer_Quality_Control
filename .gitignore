@@ -3,10 +3,12 @@ pictures/
 .vscode/
 Learn 2D-Segmentation.ipynb
 *.png
+*.jpg
 *.json
 *.jpeg
 *.csv
 *.pkl
+*.pth
 *.onnx
 *.onnx.data
 .gradio/

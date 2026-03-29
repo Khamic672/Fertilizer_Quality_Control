@@ -3,8 +3,10 @@ import copy
 import json
 import os
 import random
+import shutil
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -25,7 +27,7 @@ from tqdm import tqdm
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as TF
 
-CLASS_NAMES = (
+COATED_CLASS_NAMES = (
     'background',
     'Black_DAP',
     'Red_MOP',
@@ -35,16 +37,23 @@ CLASS_NAMES = (
     'Yellow_Urea_coated',
     'Yellow_Urea_uncoated',
 )
-N_CLASSES = len(CLASS_NAMES)
+UNCOATED_CLASS_NAMES = (
+    'background',
+    'Black_DAP',
+    'Red_MOP',
+    'Yellow_Urea_uncoated',
+)
+N_CLASSES = len(COATED_CLASS_NAMES)
 MASK_EXTENSIONS = ('.png', '.jpg', '.jpeg')
 
 
-def get_class_names(n_classes):
+def get_class_names(n_classes, *, uncoated=False):
     """Return class names trimmed/padded to match n_classes."""
-    if n_classes <= len(CLASS_NAMES):
-        return list(CLASS_NAMES[:n_classes])
-    return list(CLASS_NAMES) + [
-        f'Class {i}' for i in range(len(CLASS_NAMES), n_classes)
+    preferred = UNCOATED_CLASS_NAMES if uncoated or n_classes == len(UNCOATED_CLASS_NAMES) else COATED_CLASS_NAMES
+    if n_classes <= len(preferred):
+        return list(preferred[:n_classes])
+    return list(preferred) + [
+        f'Class {i}' for i in range(len(preferred), n_classes)
     ]
 
 
@@ -53,6 +62,24 @@ def append_name_suffix(path: Path, suffix: str) -> Path:
     if not suffix:
         return path
     return path.with_name(f"{path.name}{suffix}")
+
+
+def build_dated_artifact_name(prefix: str, extension: str, *, uncoated: bool = False) -> str:
+    now = datetime.now()
+    stem = f"{prefix}{now.month}-{now.day}-{now.year}"
+    if uncoated:
+        stem += "-uncoated"
+    return f"{stem}{extension}"
+
+
+def remap_uncoated_mask_labels(mask_array):
+    """Collapse sparse export ids into the 4-class uncoated label space."""
+    mask_array = np.asarray(mask_array)
+    remapped = np.zeros(mask_array.shape, dtype=np.uint8)
+    remapped[mask_array == 1] = 1
+    remapped[mask_array == 2] = 2
+    remapped[(mask_array != 0) & (mask_array != 1) & (mask_array != 2)] = 3
+    return remapped
 
 
 def resolve_mask_path(mask_dir, img_name):
@@ -153,11 +180,22 @@ class JointTransform:
 # ============================================================================
 class BeadDataset(Dataset):
     """Dataset for NPK bead segmentation with flexible transforms"""
-    def __init__(self, image_dir, mask_dir, transform=None, debug=False):
+    def __init__(
+        self,
+        image_dir,
+        mask_dir,
+        transform=None,
+        debug=False,
+        uncoated=False,
+        cache_in_memory=False,
+    ):
         self.image_dir = image_dir
         self.mask_dir = mask_dir
         self.transform = transform
         self.debug = debug
+        self.uncoated = bool(uncoated)
+        self.cache_in_memory = bool(cache_in_memory)
+        self._pair_cache = {}
         
         # Sort for deterministic ordering
         self.images = sorted(
@@ -168,30 +206,28 @@ class BeadDataset(Dataset):
         if self.debug:
             print(f"[BeadDataset] Found {len(self.images)} images in {image_dir}")
             print(f"[BeadDataset] First 3 images: {self.images[:3]}")
+        if self.cache_in_memory:
+            print(
+                f"[CACHE] Preloading {len(self.images)} decoded image/mask pair(s) "
+                f"from {self.image_dir}"
+            )
+            for idx in range(len(self.images)):
+                self._pair_cache[idx] = self._load_pair_from_disk(idx)
+            print("[CACHE] Dataset cache ready")
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, idx):
+        image, mask = self.get_raw_pair(idx)
         img_name = self.images[idx]
-        img_path = os.path.join(self.image_dir, img_name)
-        mask_path = resolve_mask_path(self.mask_dir, img_name)
-
-        # Load image and mask
-        image = Image.open(img_path).convert('RGB')
-        mask = Image.open(mask_path)
-
-        # Convert mask to single channel if needed
-        mask_array = np.array(mask)
-        if len(mask_array.shape) > 2:
-            mask_array = mask_array[:, :, 0]
-        mask = Image.fromarray(mask_array.astype(np.uint8), mode='L')
 
         # Debug first few samples
         if self.debug and idx < 3:
+            mask_array = np.array(mask)
             print(f"\n[BeadDataset] Sample {idx}: {img_name}")
-            print(f"  Image: {img_path}")
-            print(f"  Mask: {mask_path}")
+            print(f"  Image: {os.path.join(self.image_dir, img_name)}")
+            print(f"  Mask: {resolve_mask_path(self.mask_dir, img_name)}")
             print(f"  Mask unique values: {np.unique(mask_array)}")
 
         # Apply transforms
@@ -199,6 +235,30 @@ class BeadDataset(Dataset):
             image, mask = self.transform(image, mask)
 
         return image, mask
+
+    def _load_pair_from_disk(self, idx):
+        img_name = self.images[idx]
+        img_path = os.path.join(self.image_dir, img_name)
+        mask_path = resolve_mask_path(self.mask_dir, img_name)
+
+        image = Image.open(img_path).convert('RGB')
+        image.load()
+
+        mask = Image.open(mask_path)
+        mask_array = np.array(mask)
+        if len(mask_array.shape) > 2:
+            mask_array = mask_array[:, :, 0]
+        if self.uncoated:
+            mask_array = remap_uncoated_mask_labels(mask_array)
+        mask = Image.fromarray(mask_array.astype(np.uint8), mode='L')
+
+        return image, mask
+
+    def get_raw_pair(self, idx):
+        if self.cache_in_memory:
+            image, mask = self._pair_cache[idx]
+            return image.copy(), mask.copy()
+        return self._load_pair_from_disk(idx)
 
 
 # ============================================================================
@@ -227,18 +287,18 @@ class TransformSubset(Dataset):
 
 def load_image_mask_pair(dataset, original_idx):
     """Load a raw image/mask pair from the base dataset by absolute index."""
+    if hasattr(dataset, "get_raw_pair"):
+        return dataset.get_raw_pair(original_idx)
+
     img_name = dataset.images[original_idx]
     img_path = os.path.join(dataset.image_dir, img_name)
     mask_path = resolve_mask_path(dataset.mask_dir, img_name)
-
     image = Image.open(img_path).convert('RGB')
     mask = Image.open(mask_path)
-
     mask_array = np.array(mask)
     if len(mask_array.shape) > 2:
         mask_array = mask_array[:, :, 0]
     mask = Image.fromarray(mask_array.astype(np.uint8), mode='L')
-
     return image, mask
 
 
@@ -516,9 +576,15 @@ class SegmentationTrainer:
         running_loss = 0.0
         running_dice = 0.0
         running_iou = 0.0
-        
-        pbar = tqdm(self.train_loader, desc='Training', leave=False)
-        for data, target in pbar:
+        total_batches = len(self.train_loader)
+        use_tqdm = sys.stdout.isatty()
+        iterator = self.train_loader
+        pbar = None
+        if use_tqdm:
+            pbar = tqdm(self.train_loader, desc='Training', leave=False)
+            iterator = pbar
+
+        for batch_idx, (data, target) in enumerate(iterator, start=1):
             data = data.to(self.device, non_blocking=True)
             target = target.to(self.device, non_blocking=True)
             
@@ -543,11 +609,18 @@ class SegmentationTrainer:
             running_loss += loss.item()
             running_dice += dice.item()
             running_iou += iou.item()
-            
-            pbar.set_postfix({
-                'loss': f'{loss.item():.4f}',
-                'dice': f'{dice.item():.4f}'
-            })
+
+            if pbar is not None:
+                pbar.set_postfix({
+                    'loss': f'{loss.item():.4f}',
+                    'dice': f'{dice.item():.4f}'
+                })
+            else:
+                print(
+                    f"[BATCH] train {batch_idx}/{total_batches} "
+                    f"loss={loss.item():.4f} dice={dice.item():.4f}",
+                    flush=True,
+                )
         
         avg_loss = running_loss / len(self.train_loader)
         avg_dice = running_dice / len(self.train_loader)
@@ -561,9 +634,15 @@ class SegmentationTrainer:
         running_loss = 0.0
         running_dice = 0.0
         running_iou = 0.0
-        
+
+        total_batches = len(self.val_loader)
+        use_tqdm = sys.stdout.isatty()
+        iterator = self.val_loader
+        if use_tqdm:
+            iterator = tqdm(self.val_loader, desc='Validation', leave=False)
+
         with torch.no_grad():
-            for data, target in self.val_loader:
+            for batch_idx, (data, target) in enumerate(iterator, start=1):
                 data = data.to(self.device, non_blocking=True)
                 target = target.to(self.device, non_blocking=True)
                 
@@ -576,6 +655,12 @@ class SegmentationTrainer:
                 running_loss += loss.item()
                 running_dice += dice.item()
                 running_iou += iou.item()
+                if not use_tqdm:
+                    print(
+                        f"[BATCH] val {batch_idx}/{total_batches} "
+                        f"loss={loss.item():.4f} dice={dice.item():.4f}",
+                        flush=True,
+                    )
         
         avg_loss = running_loss / len(self.val_loader)
         avg_dice = running_dice / len(self.val_loader)
@@ -589,10 +674,13 @@ class SegmentationTrainer:
         save_dir='checkpoints',
         early_stopping_patience=50,
         model_suffix='',
+        best_model_name=None,
+        best_model_aliases=None,
     ):
         """Full training loop with early stopping"""
         os.makedirs(save_dir, exist_ok=True)
-        best_model_name = f"best_model{model_suffix}.pth"
+        best_model_name = best_model_name or f"best_model{model_suffix}.pth"
+        best_model_aliases = list(best_model_aliases or [])
         
         print(f"\n{'='*70}")
         print(f"Training Configuration:")
@@ -640,14 +728,18 @@ class SegmentationTrainer:
                 self.best_model_state = copy.deepcopy(self.model.state_dict())
                 
                 # Save best model
-                torch.save({
+                checkpoint_payload = {
                     'epoch': epoch,
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': self.optimizer.state_dict(),
                     'scheduler_state_dict': self.scheduler.state_dict(),
                     'best_dice': self.best_dice,
                     'history': self.history
-                }, os.path.join(save_dir, best_model_name))
+                }
+                torch.save(checkpoint_payload, os.path.join(save_dir, best_model_name))
+                for alias_name in best_model_aliases:
+                    if alias_name and alias_name != best_model_name:
+                        torch.save(checkpoint_payload, os.path.join(save_dir, alias_name))
             else:
                 self.patience_counter += 1
             
@@ -1052,6 +1144,23 @@ def initialize_model_from_checkpoint(model, checkpoint_path):
         print(f"[Init] Skipped incompatible tensors: {len(skipped)}")
 
 
+def resolve_default_coated_checkpoint(checkpoints_dir: Path) -> Optional[Path]:
+    legacy = checkpoints_dir / "best_model.pth"
+    if legacy.exists():
+        return legacy
+
+    dated_candidates = sorted(
+        (
+            candidate
+            for candidate in checkpoints_dir.glob("TR*.pth")
+            if "-uncoated" not in candidate.name.lower()
+        ),
+        key=lambda candidate: candidate.stat().st_mtime,
+        reverse=True,
+    )
+    return dated_candidates[0] if dated_candidates else None
+
+
 def run_uncoated_leave_one_out_cv(
     dataset_dir,
     checkpoints_dir,
@@ -1059,8 +1168,10 @@ def run_uncoated_leave_one_out_cv(
     n_classes,
     class_names,
     model_suffix="_uncoated",
+    best_model_name=None,
+    best_model_aliases=None,
     patch_size=512,
-    patches_per_image=64,
+    patches_per_image=32,
     batch_size=4,
     num_epochs=160,
     early_stopping_patience=30,
@@ -1071,11 +1182,17 @@ def run_uncoated_leave_one_out_cv(
     init_checkpoint_path=None,
 ):
     """Run leave-one-out CV with patch-based training for uncoated data."""
+    best_model_name = best_model_name or build_dated_artifact_name("TR", ".pth", uncoated=True)
+    best_model_aliases = list(best_model_aliases or [])
+    best_model_stem = Path(best_model_name).stem
+
     base_dataset = BeadDataset(
         os.path.join(dataset_dir, 'images'),
         os.path.join(dataset_dir, 'masks'),
         transform=None,
         debug=False,
+        uncoated=True,
+        cache_in_memory=True,
     )
     total_samples = len(base_dataset)
     if total_samples < 2:
@@ -1153,11 +1270,19 @@ def run_uncoated_leave_one_out_cv(
         )
 
         fold_model_suffix = f"_fold{fold_idx}{model_suffix}"
+        fold_checkpoint_name = f"{best_model_stem}-fold{fold_idx}.pth"
         trainer.train(
             num_epochs=num_epochs,
             save_dir=checkpoints_dir,
             early_stopping_patience=early_stopping_patience,
             model_suffix=fold_model_suffix,
+            best_model_name=fold_checkpoint_name,
+        )
+        trainer.plot_training_history(
+            save_path=os.path.join(
+                checkpoints_dir,
+                f"{Path(fold_checkpoint_name).stem}-curves.png",
+            )
         )
 
         fold_result = {
@@ -1165,10 +1290,19 @@ def run_uncoated_leave_one_out_cv(
             "val_image": val_image_name,
             "best_val_dice": float(trainer.best_dice),
             "best_epoch": int(trainer.best_epoch + 1),
+            "checkpoint": fold_checkpoint_name,
             "class_weights": [float(x) for x in class_weights.tolist()],
             "train_pixel_counts": [int(x) for x in pixel_counts.astype(np.int64).tolist()],
         }
         fold_results.append(fold_result)
+
+    best_fold_result = max(fold_results, key=lambda item: item["best_val_dice"])
+    selected_checkpoint = Path(checkpoints_dir) / best_fold_result["checkpoint"]
+    primary_checkpoint = Path(checkpoints_dir) / best_model_name
+    shutil.copy2(selected_checkpoint, primary_checkpoint)
+    for alias_name in best_model_aliases:
+        if alias_name and alias_name != best_model_name:
+            shutil.copy2(primary_checkpoint, Path(checkpoints_dir) / alias_name)
 
     best_dice_values = np.array([f["best_val_dice"] for f in fold_results], dtype=np.float64)
     summary = {
@@ -1178,6 +1312,8 @@ def run_uncoated_leave_one_out_cv(
         "std_best_val_dice": float(best_dice_values.std(ddof=0)),
         "min_best_val_dice": float(best_dice_values.min()),
         "max_best_val_dice": float(best_dice_values.max()),
+        "selected_fold": int(best_fold_result["fold"]),
+        "selected_checkpoint": best_model_name,
         "fold_results": fold_results,
         "config": {
             "patch_size": int(patch_size),
@@ -1193,7 +1329,7 @@ def run_uncoated_leave_one_out_cv(
         },
     }
 
-    summary_path = Path(checkpoints_dir) / f"loo_cv_summary{model_suffix}.json"
+    summary_path = Path(checkpoints_dir) / f"{best_model_stem}-summary.json"
     summary_path.write_text(json.dumps(summary, indent=2))
 
     print("\n" + "=" * 70)
@@ -1208,6 +1344,10 @@ def run_uncoated_leave_one_out_cv(
     print(f"Mean Dice: {summary['mean_best_val_dice']:.4f}")
     print(f"Std Dice:  {summary['std_best_val_dice']:.4f}")
     print(f"Min/Max:   {summary['min_best_val_dice']:.4f} / {summary['max_best_val_dice']:.4f}")
+    print(
+        f"Selected fold: {best_fold_result['fold']} "
+        f"(copied to {primary_checkpoint.name})"
+    )
     print(f"Saved summary: {summary_path}")
     print("=" * 70 + "\n")
 
@@ -1292,7 +1432,7 @@ def visualize_predictions(model, dataset, device, num_samples=4,
     plt.close(fig)
 
 
-def verify_dataset_classes(data_dir, expected_classes=N_CLASSES):
+def verify_dataset_classes(data_dir, expected_classes=N_CLASSES, *, uncoated=False):
     """Verify class labels in mask files and return sorted discovered classes."""
     print("\n" + "="*70)
     print("Verifying Dataset Classes")
@@ -1304,6 +1444,7 @@ def verify_dataset_classes(data_dir, expected_classes=N_CLASSES):
         if f.lower().endswith(('.png', '.jpg', '.jpeg'))
     )
 
+    raw_classes = set()
     all_classes = set()
     class_counts = {}
 
@@ -1314,6 +1455,10 @@ def verify_dataset_classes(data_dir, expected_classes=N_CLASSES):
         if len(mask.shape) > 2:
             mask = mask[:, :, 0]
 
+        raw_unique_classes = np.unique(mask)
+        raw_classes.update(raw_unique_classes)
+        if uncoated:
+            mask = remap_uncoated_mask_labels(mask)
         unique_classes = np.unique(mask)
         all_classes.update(unique_classes)
 
@@ -1321,7 +1466,11 @@ def verify_dataset_classes(data_dir, expected_classes=N_CLASSES):
             class_counts[int(cls)] = class_counts.get(int(cls), 0) + 1
 
     found_classes = sorted(int(cls) for cls in all_classes)
-    print(f"\nFound classes: {found_classes}")
+    if uncoated:
+        print(f"\nRaw classes: {sorted(int(cls) for cls in raw_classes)}")
+        print(f"Remapped uncoated classes: {found_classes}")
+    else:
+        print(f"\nFound classes: {found_classes}")
     print(f"Expected classes: {list(range(expected_classes))}")
 
     if set(found_classes) == set(range(expected_classes)):
@@ -1365,7 +1514,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--uncoated",
         action="store_true",
-        help="Use dedicated *_uncoated dataset/checkpoint folders and model filenames",
+        help="Train on the selected uncoated dataset with the reduced uncoated label set",
     )
     parser.add_argument(
         "--seed",
@@ -1413,49 +1562,49 @@ def parse_args(argv=None):
         "--uncoated-patch-size",
         type=int,
         default=512,
-        help="Patch size for uncoated patch-based training",
+        help="Patch size for uncoated leave-one-out training",
     )
     parser.add_argument(
         "--uncoated-patches-per-image",
         type=int,
-        default=64,
-        help="Number of random patches sampled per train image per epoch (uncoated mode)",
+        default=32,
+        help="Random patches sampled per training image per epoch in uncoated mode",
     )
     parser.add_argument(
         "--uncoated-batch-size",
         type=int,
         default=4,
-        help="Batch size for uncoated mode",
+        help="Batch size for uncoated patch training",
     )
     parser.add_argument(
         "--uncoated-epochs",
         type=int,
         default=160,
-        help="Epochs for each fold in uncoated leave-one-out CV",
+        help="Epoch count per leave-one-out fold for uncoated training",
     )
     parser.add_argument(
         "--uncoated-patience",
         type=int,
         default=30,
-        help="Early stopping patience for uncoated leave-one-out CV",
+        help="Early stopping patience per fold for uncoated training",
     )
     parser.add_argument(
         "--uncoated-learning-rate",
         type=float,
         default=1e-4,
-        help="Learning rate for uncoated leave-one-out CV",
+        help="Learning rate for uncoated training",
     )
     parser.add_argument(
         "--uncoated-weight-decay",
         type=float,
         default=1e-4,
-        help="Weight decay for uncoated leave-one-out CV",
+        help="Weight decay for uncoated training",
     )
     parser.add_argument(
         "--uncoated-init-checkpoint",
         type=Path,
         default=None,
-        help="Optional checkpoint to warm-start each uncoated fold (defaults to checkpoints/best_model.pth if present)",
+        help="Optional coated checkpoint to warm-start uncoated training",
     )
     return parser.parse_args(argv)
 
@@ -1484,16 +1633,23 @@ def main(argv=None):
     paths = get_data_paths()
     default_dataset = append_name_suffix(Path(paths["unet_dataset"]), suffix)
     default_checkpoints = append_name_suffix(Path(paths["checkpoints"]), suffix)
+    coated_checkpoints_dir = Path(paths["checkpoints"]).expanduser().resolve()
 
     dataset_dir = str((args.dataset or default_dataset).expanduser().resolve())
     checkpoints_dir = str((args.checkpoints or default_checkpoints).expanduser().resolve())
     os.makedirs(checkpoints_dir, exist_ok=True)
 
-    best_model_name = f"best_model{suffix}.pth"
-    curves_name = f"training_curves{suffix}.png"
+    best_model_name = build_dated_artifact_name("TR", ".pth", uncoated=args.uncoated)
+    legacy_best_model_name = f"best_model{suffix}.pth"
+    curves_name = f"{Path(best_model_name).stem}-curves.png"
     
     # Verify dataset first and align class count to actual labels
-    found_classes = verify_dataset_classes(dataset_dir, expected_classes=N_CLASSES)
+    expected_classes = len(UNCOATED_CLASS_NAMES) if args.uncoated else N_CLASSES
+    found_classes = verify_dataset_classes(
+        dataset_dir,
+        expected_classes=expected_classes,
+        uncoated=args.uncoated,
+    )
     if not found_classes:
         raise RuntimeError(f"No mask classes found under: {dataset_dir}")
 
@@ -1505,24 +1661,24 @@ def main(argv=None):
             f"Using detected value."
         )
     active_n_classes = detected_n_classes
-    class_names = get_class_names(active_n_classes)
+    class_names = get_class_names(active_n_classes, uncoated=args.uncoated)
 
     if args.uncoated:
         init_checkpoint_path = args.uncoated_init_checkpoint
         if init_checkpoint_path is None:
-            default_init = Path(paths["checkpoints"]) / "best_model.pth"
-            if default_init.exists():
-                init_checkpoint_path = default_init
-            else:
+            init_checkpoint_path = resolve_default_coated_checkpoint(coated_checkpoints_dir)
+            if init_checkpoint_path is None:
                 print("[WARN] No default coated checkpoint found for warm start.")
 
-        run_uncoated_leave_one_out_cv(
+        summary = run_uncoated_leave_one_out_cv(
             dataset_dir=dataset_dir,
             checkpoints_dir=checkpoints_dir,
             device=device,
             n_classes=active_n_classes,
             class_names=class_names,
             model_suffix=suffix,
+            best_model_name=best_model_name,
+            best_model_aliases=[legacy_best_model_name],
             patch_size=args.uncoated_patch_size,
             patches_per_image=args.uncoated_patches_per_image,
             batch_size=args.uncoated_batch_size,
@@ -1531,11 +1687,19 @@ def main(argv=None):
             learning_rate=args.uncoated_learning_rate,
             weight_decay=args.uncoated_weight_decay,
             random_seed=args.seed,
-            num_workers=0,  # Set to 0 for Windows compatibility
+            num_workers=0,
             init_checkpoint_path=init_checkpoint_path,
         )
+
+        print("\n" + "="*70)
+        print("Training Complete!")
+        print(f"Primary model saved to: {os.path.join(checkpoints_dir, best_model_name)}")
+        if legacy_best_model_name != best_model_name:
+            print(f"Compatibility copy updated: {os.path.join(checkpoints_dir, legacy_best_model_name)}")
+        print(f"Selected fold: {summary['selected_fold']}")
+        print("="*70 + "\n")
         return
-    
+
     # Create data loaders - FIXED VERSION
     train_loader, val_loader, test_loader = create_data_loaders(
         data_dir=dataset_dir,
@@ -1547,10 +1711,10 @@ def main(argv=None):
         random_seed=args.seed,
         num_workers=0  # Set to 0 for Windows compatibility
     )
-    
+
     # Create model
     model = SimpleUNet(n_classes=active_n_classes)
-    
+
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -1573,6 +1737,8 @@ def main(argv=None):
         save_dir=checkpoints_dir,
         early_stopping_patience=args.patience,
         model_suffix=suffix,
+        best_model_name=best_model_name,
+        best_model_aliases=[legacy_best_model_name],
     )
     
     # Plot training history
@@ -1596,6 +1762,8 @@ def main(argv=None):
     print("\n" + "="*70)
     print("Training Complete!")
     print(f"Best model saved to: {os.path.join(checkpoints_dir, best_model_name)}")
+    if legacy_best_model_name != best_model_name:
+        print(f"Compatibility copy updated: {os.path.join(checkpoints_dir, legacy_best_model_name)}")
     print("="*70 + "\n")
 
 

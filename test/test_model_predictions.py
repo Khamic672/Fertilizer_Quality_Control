@@ -15,8 +15,9 @@ from soil_segment.inference import load_segmentation_model, predict_segmentation
 from soil_segment.model import DummySegmenter
 from soil_segment.npk_predictor import NPKPredictor
 
-SEGMENTATION_MODEL_PATH = PROJECT_ROOT / "backend" / "app_models" / "best_model.pth"
-REGRESSION_MODEL_PATH = PROJECT_ROOT / "backend" / "app_models" / "regression_model.pkl"
+APP_MODELS_DIR = PROJECT_ROOT / "backend" / "app_models"
+SEGMENTATION_MODEL_PATH = APP_MODELS_DIR / "coated_models" / "best_model.pth"
+REGRESSION_MODEL_PATH = APP_MODELS_DIR / "coated_models" / "regression_model.pkl"
 SAMPLE_IMAGE_PATH = PROJECT_ROOT / "test" / "20-3-3.JPG"
 
 # Snapshot values captured on 2026-02-12 from current checkpoints.

@@ -66,25 +66,25 @@ cd backend
 echo -e "\n${YELLOW}Checking for model checkpoints...${NC}"
 MISSING_MODELS=0
 
-if [ ! -f "app_models/best_model.pth" ]; then
-    echo -e "${RED}✗ app_models/best_model.pth not found${NC}"
+if [ ! -f "app_models/coated_models/best_model.pth" ] && [ ! -f "app_models/best_model.pth" ]; then
+    echo -e "${RED}✗ coated UNet checkpoint not found${NC}"
     MISSING_MODELS=1
 else
     echo -e "${GREEN}✓ UNet checkpoint found${NC}"
 fi
 
-if [ ! -f "app_models/regression_model.pkl" ]; then
-    echo -e "${RED}✗ app_models/regression_model.pkl not found${NC}"
+if [ ! -f "app_models/coated_models/regression_model.pkl" ] && [ ! -f "app_models/regression_model.pkl" ]; then
+    echo -e "${RED}✗ coated regression checkpoint not found${NC}"
     MISSING_MODELS=1
 else
     echo -e "${GREEN}✓ Regression model found${NC}"
 fi
 
 if [ $MISSING_MODELS -eq 1 ]; then
-    echo -e "\n${YELLOW}⚠️  Please place your model checkpoints in backend/app_models/${NC}"
+    echo -e "\n${YELLOW}⚠️  Please place your model checkpoints in backend/app_models/coated_models/${NC}"
     echo -e "Required files:"
-    echo -e "  - backend/app_models/best_model.pth"
-    echo -e "  - backend/app_models/regression_model.pkl"
+    echo -e "  - backend/app_models/coated_models/best_model.pth"
+    echo -e "  - backend/app_models/coated_models/regression_model.pkl"
     echo ""
     read -p "Continue anyway? (y/n) " -n 1 -r
     echo

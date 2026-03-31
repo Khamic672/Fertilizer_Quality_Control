@@ -133,13 +133,48 @@ def preprocess_for_model(image_np: np.ndarray, device: torch.device) -> torch.Te
     return tensor
 
 
-def _load_torch_model(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
+def _checkpoint_state_dict(checkpoint: dict) -> dict:
+    state_dict = checkpoint
+    if isinstance(checkpoint, dict):
+        state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
+    return state_dict
+
+
+def _set_model_num_classes(model: torch.nn.Module, num_classes: int) -> None:
+    with contextlib.suppress(Exception):
+        setattr(model, "_loaded_num_classes", int(num_classes))
+
+
+def _infer_num_classes_from_checkpoint(checkpoint: dict, fallback: int) -> int:
+    if isinstance(checkpoint, dict) and checkpoint.get("num_classes") is not None:
+        return int(checkpoint["num_classes"])
+
+    state_dict = _checkpoint_state_dict(checkpoint)
+    for key in ("final_conv.weight", "final_conv.bias", "classifier.weight", "classifier.bias"):
+        tensor = state_dict.get(key) if isinstance(state_dict, dict) else None
+        if tensor is None:
+            continue
+        if hasattr(tensor, "shape") and len(tensor.shape) > 0:
+            return int(tensor.shape[0])
+        if hasattr(tensor, "numel"):
+            return int(tensor.numel())
+    return fallback
+
+
+def _load_torch_model(
+    checkpoint_path: str,
+    device: torch.device,
+    *,
+    fallback_num_classes: int = DEFAULT_NUM_CLASSES,
+    infer_num_classes: bool = False,
+) -> torch.nn.Module:
     path = Path(checkpoint_path)
     if not path.exists():
         load_error = f"Checkpoint not found at {path}."
         print(f"{load_error} Using dummy segmenter.")
-        model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
+        model = DummySegmenter(num_classes=fallback_num_classes)
         setattr(model, "_load_error", load_error)
+        _set_model_num_classes(model, fallback_num_classes)
         model.to(device)
         model.eval()
         return model
@@ -149,20 +184,25 @@ def _load_torch_model(checkpoint_path: str, device: torch.device) -> torch.nn.Mo
         # TorchScript module
         if isinstance(checkpoint, torch.jit.ScriptModule):
             model = checkpoint
+            _set_model_num_classes(model, fallback_num_classes)
         else:
-            num_classes = DEFAULT_NUM_CLASSES
-            if isinstance(checkpoint, dict):
+            num_classes = fallback_num_classes
+            if infer_num_classes:
+                num_classes = _infer_num_classes_from_checkpoint(checkpoint, num_classes)
+            elif isinstance(checkpoint, dict):
                 num_classes = int(checkpoint.get("num_classes", num_classes))
             model = SimpleUNet(n_classes=num_classes)
             _load_state_dict(model, checkpoint)
+            _set_model_num_classes(model, num_classes)
         model.to(device)
         model.eval()
         return model
     except Exception as exc:
         load_error = f"Failed to load checkpoint ({exc})."
         print(f"{load_error} Using dummy segmenter.")
-        model = DummySegmenter(num_classes=DEFAULT_NUM_CLASSES)
+        model = DummySegmenter(num_classes=fallback_num_classes)
         setattr(model, "_load_error", load_error)
+        _set_model_num_classes(model, fallback_num_classes)
         model.to(device)
         model.eval()
         return model
@@ -298,9 +338,7 @@ def _load_ort_model(onnx_path: Path) -> OrtSegmenter | None:
 
 
 def _load_state_dict(model: torch.nn.Module, checkpoint: dict) -> None:
-    state_dict = checkpoint
-    if isinstance(checkpoint, dict):
-        state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
+    state_dict = _checkpoint_state_dict(checkpoint)
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing:
         print(f"Warning: missing keys when loading checkpoint: {missing}")
@@ -370,6 +408,22 @@ def load_segmentation_model(
 
     model = _load_torch_model(checkpoint_path, device)
     model = _maybe_quantize_model(model, device, quant_mode)
+    model.eval()
+    return model
+
+
+def load_uncoated_segmentation_model(checkpoint_path: str, device: torch.device) -> torch.nn.Module:
+    """
+    Load the optional uncoated segmentation checkpoint through a dedicated torch path.
+    This keeps it isolated from the coated runtime/export pipeline and infers its head size
+    from the checkpoint when metadata is missing.
+    """
+    model = _load_torch_model(
+        checkpoint_path,
+        device,
+        fallback_num_classes=DEFAULT_NUM_CLASSES,
+        infer_num_classes=True,
+    )
     model.eval()
     return model
 

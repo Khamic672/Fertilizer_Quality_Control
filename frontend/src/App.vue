@@ -492,7 +492,7 @@ const filters = ref({
   status: ''
 })
 
-const maskLegend = [
+const defaultMaskLegend = [
   { label: 'Black DAP', color: '#2D2A32' },
   { label: 'Red MOP', color: '#E11D48' },
   { label: 'White AMP', color: '#38BDF8' },
@@ -519,6 +519,11 @@ const previewImage = computed(() => {
   const result = activeResult.value
   if (!result) return ''
   return result.segmentation || result.original || ''
+})
+
+const maskLegend = computed(() => {
+  const legend = activeResult.value?.class_legend
+  return Array.isArray(legend) && legend.length ? legend : defaultMaskLegend
 })
 
 const batchSummary = computed(() => {

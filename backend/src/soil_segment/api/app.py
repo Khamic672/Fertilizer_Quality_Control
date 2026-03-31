@@ -33,6 +33,7 @@ from soil_segment.storage import append_history, delete_history_by_id, load_hist
 from soil_segment.inference import (
     CLASS_COLORS,
     load_segmentation_model,
+    load_uncoated_segmentation_model,
     predict_segmentation,
 )
 from soil_segment.model import DummySegmenter
@@ -71,15 +72,15 @@ if not runtime_logger.handlers:
 unet_model = None
 unet_uncoated_model = None
 npk_predictor = None
+npk_uncoated_predictor = None
 device = None
 history_items = []
 history_counter = 0
 HISTORY_CSV = HISTORY_FILE
 
 CHECKPOINT_DIR = MODELS_DIR
-UNET_COATED_CHECKPOINT = CHECKPOINT_DIR / "best_model.pth"
-UNET_UNCOATED_CHECKPOINT = CHECKPOINT_DIR / "best_uncoated_model.pth"
-REGRESSION_CHECKPOINT = CHECKPOINT_DIR / "regression_model.pkl"
+COATED_CHECKPOINT_DIR = CHECKPOINT_DIR / "coated_models"
+UNCOATED_CHECKPOINT_DIR = CHECKPOINT_DIR / "uncoated_models"
 TARGET_SIZE = (SEGMENTATION_MODEL_SIZE, SEGMENTATION_MODEL_SIZE)
 APP_START_MONO = time.monotonic()
 _REQUEST_LOCK = threading.Lock()
@@ -92,6 +93,94 @@ _INFERENCE_CACHE_ORDER = []
 _INFERENCE_CACHE_MAX_ITEMS = int(os.environ.get("INFERENCE_CACHE_MAX_ITEMS", "32"))
 _INFERENCE_CACHE_HITS = 0
 _INFERENCE_CACHE_MISSES = 0
+
+CLASS_LABELS = {
+    1: "Black DAP",
+    2: "Red MOP",
+    3: "White AMP",
+    4: "White Boron",
+    5: "White Mg",
+    6: "Yellow Urea",
+}
+CLASS_HEX_COLORS = {
+    1: "#2D2A32",
+    2: "#E11D48",
+    3: "#38BDF8",
+    4: "#F472B6",
+    5: "#22C55E",
+    6: "#F59E0B",
+}
+COATED_LEGEND_CLASS_IDS = (1, 2, 3, 4, 5, 6)
+UNCOATED_LEGEND_CLASS_IDS = (1, 2, 6)
+UNCOATED_REMAP_BY_HEAD_SIZE = {
+    4: {0: 0, 1: 1, 2: 2, 3: 6},
+    8: {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 6},
+}
+
+
+def _resolve_existing_checkpoint(*candidates):
+    for candidate in candidates:
+        if candidate and candidate.exists():
+            return candidate
+    return candidates[0] if candidates else None
+
+
+def _resolve_dated_checkpoint(directory, suffix, *, exclude_suffix=None):
+    if not directory.exists():
+        return None
+
+    matches = []
+    for candidate in directory.iterdir():
+        if not candidate.is_file():
+            continue
+        name = candidate.name.lower()
+        if not name.endswith(suffix.lower()):
+            continue
+        if exclude_suffix and name.endswith(exclude_suffix.lower()):
+            continue
+        matches.append(candidate)
+
+    if not matches:
+        return None
+    return sorted(matches, key=lambda path: path.stat().st_mtime, reverse=True)[0]
+
+
+def _resolve_coated_unet_checkpoint():
+    return _resolve_existing_checkpoint(
+        COATED_CHECKPOINT_DIR / "best_model.pth",
+        CHECKPOINT_DIR / "best_model.pth",
+        _resolve_dated_checkpoint(COATED_CHECKPOINT_DIR, ".pth", exclude_suffix="-uncoated.pth"),
+    )
+
+
+def _resolve_uncoated_unet_checkpoint():
+    return _resolve_existing_checkpoint(
+        UNCOATED_CHECKPOINT_DIR / "best_uncoated_model.pth",
+        CHECKPOINT_DIR / "best_uncoated_model.pth",
+        _resolve_dated_checkpoint(UNCOATED_CHECKPOINT_DIR, "-uncoated.pth"),
+    )
+
+
+def _resolve_coated_regression_checkpoint():
+    return _resolve_existing_checkpoint(
+        COATED_CHECKPOINT_DIR / "regression_model.pkl",
+        CHECKPOINT_DIR / "regression_model.pkl",
+        _resolve_dated_checkpoint(COATED_CHECKPOINT_DIR, ".pkl", exclude_suffix="-uncoated.pkl"),
+    )
+
+
+def _resolve_uncoated_regression_checkpoint():
+    return _resolve_existing_checkpoint(
+        UNCOATED_CHECKPOINT_DIR / "regression_model_uncoated.pkl",
+        CHECKPOINT_DIR / "regression_model_uncoated.pkl",
+        _resolve_dated_checkpoint(UNCOATED_CHECKPOINT_DIR, "-uncoated.pkl"),
+    )
+
+
+UNET_COATED_CHECKPOINT = _resolve_coated_unet_checkpoint()
+UNET_UNCOATED_CHECKPOINT = _resolve_uncoated_unet_checkpoint()
+REGRESSION_CHECKPOINT = _resolve_coated_regression_checkpoint()
+REGRESSION_UNCOATED_CHECKPOINT = _resolve_uncoated_regression_checkpoint()
 
 
 def _cache_get(key: str):
@@ -164,6 +253,75 @@ def _request_size_bytes() -> int:
     return 0
 
 
+def _append_model_note(current_note, extra_note):
+    if not extra_note:
+        return current_note
+    if not current_note:
+        return extra_note
+    return f"{current_note} {extra_note}"
+
+
+def _model_num_classes(model) -> int | None:
+    loaded_num_classes = getattr(model, "_loaded_num_classes", None)
+    if loaded_num_classes is not None:
+        return int(loaded_num_classes)
+
+    final_conv = getattr(model, "final_conv", None)
+    out_channels = getattr(final_conv, "out_channels", None)
+    if out_channels is not None:
+        return int(out_channels)
+
+    num_classes = getattr(model, "num_classes", None)
+    if num_classes is not None:
+        return int(num_classes)
+
+    return None
+
+
+def _legend_for_class_ids(class_ids):
+    return [
+        {
+            "id": int(class_id),
+            "label": CLASS_LABELS[class_id],
+            "color": CLASS_HEX_COLORS[class_id],
+        }
+        for class_id in class_ids
+        if class_id in CLASS_LABELS and class_id in CLASS_HEX_COLORS
+    ]
+
+
+def _canonicalize_mask(mask: np.ndarray, label_space: str) -> np.ndarray:
+    if label_space == "uncoated_4":
+        mapping = UNCOATED_REMAP_BY_HEAD_SIZE[4]
+    elif label_space == "uncoated_8":
+        mapping = UNCOATED_REMAP_BY_HEAD_SIZE[8]
+    else:
+        return mask
+
+    remapped = np.zeros(mask.shape, dtype=np.uint8)
+    for source_class, target_class in mapping.items():
+        remapped[mask == source_class] = target_class
+    return remapped
+
+
+def _resolve_label_space(model, use_uncoated: bool) -> str:
+    if not use_uncoated:
+        return "coated"
+
+    num_classes = _model_num_classes(model)
+    if num_classes == 4:
+        return "uncoated_4"
+    if num_classes == 8:
+        return "uncoated_8"
+    return "coated"
+
+
+def _legend_for_label_space(label_space: str):
+    if label_space == "uncoated_4":
+        return _legend_for_class_ids(UNCOATED_LEGEND_CLASS_IDS)
+    return _legend_for_class_ids(COATED_LEGEND_CLASS_IDS)
+
+
 def _validate_required_model_files() -> None:
     required_models = {
         "UNet segmentation model": UNET_COATED_CHECKPOINT,
@@ -171,7 +329,7 @@ def _validate_required_model_files() -> None:
     }
     missing = []
     for model_name, model_path in required_models.items():
-        if not model_path.exists():
+        if model_path is None or not model_path.exists():
             runtime_logger.error("%s checkpoint is missing: %s", model_name, model_path)
             missing.append(f"{model_name} ({model_path})")
 
@@ -181,12 +339,13 @@ def _validate_required_model_files() -> None:
 
 def initialize_models():
     """Load models on startup"""
-    global unet_model, unet_uncoated_model, npk_predictor, device
+    global unet_model, unet_uncoated_model, npk_predictor, npk_uncoated_predictor, device
 
     # Reset globals so partial initialization does not look healthy.
     unet_model = None
     unet_uncoated_model = None
     npk_predictor = None
+    npk_uncoated_predictor = None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     runtime_logger.info("Using device: %s", device)
 
@@ -213,10 +372,13 @@ def initialize_models():
         raise RuntimeError(f"UNet segmentation model failed to load ({load_error})")
     unet_model = loaded_unet
 
-    if UNET_UNCOATED_CHECKPOINT.exists():
-        runtime_logger.info("Loading optional uncoated UNet model from %s", UNET_UNCOATED_CHECKPOINT)
+    if UNET_UNCOATED_CHECKPOINT is not None and UNET_UNCOATED_CHECKPOINT.exists():
+        runtime_logger.info(
+            "Loading optional uncoated UNet model from %s via dedicated uncoated loader",
+            UNET_UNCOATED_CHECKPOINT,
+        )
         try:
-            loaded_uncoated = load_segmentation_model(str(UNET_UNCOATED_CHECKPOINT), device)
+            loaded_uncoated = load_uncoated_segmentation_model(str(UNET_UNCOATED_CHECKPOINT), device)
             if isinstance(loaded_uncoated, DummySegmenter):
                 load_error = getattr(loaded_uncoated, "_load_error", "unknown error")
                 runtime_logger.warning(
@@ -249,6 +411,25 @@ def initialize_models():
         )
         raise RuntimeError("NPK regression model failed to load.") from exc
     npk_predictor = loaded_predictor
+
+    if REGRESSION_UNCOATED_CHECKPOINT is not None and REGRESSION_UNCOATED_CHECKPOINT.exists():
+        runtime_logger.info(
+            "Loading optional uncoated regression model from %s",
+            REGRESSION_UNCOATED_CHECKPOINT,
+        )
+        try:
+            npk_uncoated_predictor = NPKPredictor(str(REGRESSION_UNCOATED_CHECKPOINT), strict=True)
+        except Exception as exc:
+            runtime_logger.warning(
+                "Optional uncoated regression model failed to load from %s: %s",
+                REGRESSION_UNCOATED_CHECKPOINT,
+                exc,
+            )
+    else:
+        runtime_logger.info(
+            "Optional uncoated regression model checkpoint not found yet at %s. Using coated regression as placeholder.",
+            REGRESSION_UNCOATED_CHECKPOINT,
+        )
 
     runtime_logger.info("All models loaded successfully.")
     initialize_history()
@@ -496,14 +677,34 @@ def extract_common_inputs():
 def select_segmentation_model(use_uncoated: bool):
     """Resolve coated/uncoated model choice with placeholder fallback."""
     if use_uncoated and unet_uncoated_model is not None:
-        return unet_uncoated_model, UNET_UNCOATED_CHECKPOINT.name, None
+        label_space = _resolve_label_space(unet_uncoated_model, use_uncoated=True)
+        model_note = None
+        if label_space == "uncoated_4":
+            model_note = "Uncoated runtime remaps reduced 4-class predictions into the shared backend class ids."
+        elif label_space == "uncoated_8":
+            model_note = "Uncoated runtime merges Yellow_Urea_uncoated into Yellow Urea for overlay and NPK."
+        return unet_uncoated_model, UNET_UNCOATED_CHECKPOINT.name, label_space, model_note
     if use_uncoated:
         return (
             unet_model,
             UNET_COATED_CHECKPOINT.name,
-            "Uncoated model placeholder is active. Falling back to best_model.pth.",
+            "coated",
+            f"Uncoated model placeholder is active. Falling back to {UNET_COATED_CHECKPOINT.name}.",
         )
-    return unet_model, UNET_COATED_CHECKPOINT.name, None
+    return unet_model, UNET_COATED_CHECKPOINT.name, "coated", None
+
+
+def select_npk_predictor(use_uncoated: bool):
+    """Resolve coated/uncoated regression predictor choice with placeholder fallback."""
+    if use_uncoated and npk_uncoated_predictor is not None:
+        return npk_uncoated_predictor, REGRESSION_UNCOATED_CHECKPOINT.name, None
+    if use_uncoated:
+        return (
+            npk_predictor,
+            REGRESSION_CHECKPOINT.name,
+            f"Uncoated regression placeholder is active. Falling back to {REGRESSION_CHECKPOINT.name}.",
+        )
+    return npk_predictor, REGRESSION_CHECKPOINT.name, None
 
 
 def process_image_payload(image_payload, target_npk, use_uncoated=False):
@@ -512,25 +713,30 @@ def process_image_payload(image_payload, target_npk, use_uncoated=False):
     start_time = time.perf_counter()
     image_hash = None
     model_variant = UNET_COATED_CHECKPOINT.name
+    regression_variant = REGRESSION_CHECKPOINT.name
     model_note = None
     inference_logger.info("image_processing_start filename=%s", filename)
     status_level = "error"
     try:
-        segmentation_model, model_variant, model_note = select_segmentation_model(use_uncoated)
+        segmentation_model, model_variant, label_space, model_note = select_segmentation_model(use_uncoated)
+        predictor, regression_variant, regression_note = select_npk_predictor(use_uncoated)
+        model_note = _append_model_note(model_note, regression_note)
         if isinstance(image_payload, str):
             image_bytes = base64.b64decode(image_payload.split(",", 1)[1])
         else:
             image_bytes = image_payload.read()
         image_hash = hashlib.sha256(image_bytes).hexdigest()
-        cache_key = f"{model_variant}:{image_hash}"
+        cache_key = f"{model_variant}:{label_space}:{regression_variant}:{image_hash}"
 
         cached = _cache_get(cache_key)
         if cached is None:
             image_np = preprocess_image(image_bytes)
-            mask = predict_segmentation(segmentation_model, image_np, device)
+            raw_mask = predict_segmentation(segmentation_model, image_np, device)
+            mask = _canonicalize_mask(raw_mask, label_space)
             overlay = create_segmentation_overlay(image_np, mask)
-            npk_values = npk_predictor.predict(image_np, mask)
+            npk_values = predictor.predict(image_np, mask)
             mask_pixels = int(np.sum(mask > 0))
+            present_class_ids = sorted(int(value) for value in np.unique(mask) if int(value) != 0)
             cached = {
                 "segmentation": numpy_to_base64(overlay),
                 "npk": {
@@ -542,7 +748,10 @@ def process_image_payload(image_payload, target_npk, use_uncoated=False):
                     "classes_detected": int(len(np.unique(mask)) - 1),
                     "pixels_analyzed": mask_pixels,
                     "image_size": f"{TARGET_SIZE[0]}x{TARGET_SIZE[1]}",
+                    "label_space": label_space,
+                    "regression_variant": regression_variant,
                 },
+                "class_legend": _legend_for_class_ids(present_class_ids) or _legend_for_label_space(label_space),
             }
             _cache_set(cache_key, cached)
             inference_logger.info("inference_cache miss")
@@ -566,7 +775,9 @@ def process_image_payload(image_payload, target_npk, use_uncoated=False):
             "npk_errors": npk_errors,
             "npk_allowances": npk_allowances,
             "model_variant": model_variant,
+            "regression_variant": regression_variant,
             "metadata": cached["metadata"],
+            "class_legend": cached.get("class_legend", _legend_for_label_space(label_space)),
         }
         if model_note:
             response["model_note"] = model_note
@@ -615,6 +826,7 @@ def health_check():
         'status': 'healthy',
         'models_loaded': unet_model is not None and npk_predictor is not None,
         'uncoated_model_loaded': unet_uncoated_model is not None,
+        'uncoated_regression_loaded': npk_uncoated_predictor is not None,
         'device': str(device),
         'model_size': SEGMENTATION_MODEL_SIZE,
     })

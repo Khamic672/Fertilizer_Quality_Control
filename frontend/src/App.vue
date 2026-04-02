@@ -443,7 +443,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import LoadingSpinner from './components/LoadingSpinner.vue'
 
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+const apiUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '') || '/api'
 
 const fileInput = ref(null)
 const loading = ref(false)

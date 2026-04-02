@@ -161,10 +161,18 @@ Default frontend URL:
 http://localhost:5173
 ```
 
+By default the frontend calls the API through the relative path `/api`. During local development, Vite proxies `/api` requests to `http://localhost:5000`, so the backend can still run on port `5000` without hardcoding that host into the production bundle.
+
 To point the frontend at a different backend, create `frontend/.env`:
 
 ```bash
 VITE_API_URL=http://localhost:5000/api
+```
+
+For same-origin deployments behind a reverse proxy, leave `VITE_API_URL` unset or set it to:
+
+```bash
+VITE_API_URL=/api
 ```
 
 ### Training interface

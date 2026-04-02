@@ -48,6 +48,26 @@ _SUPPORTED_ONNX_EXPORT_MODES = {"auto", "always", "never"}
 _SUPPORTED_ONNX_QUANTIZE_MODES = {"none", "int8"}
 
 
+def _ort_providers() -> list[str]:
+    """
+    Return an ordered list of ONNX Runtime execution providers,
+    preferring GPU when available and falling back to CPU.
+    """
+    try:
+        import onnxruntime as ort
+        available = ort.get_available_providers()
+    except Exception:
+        return ["CPUExecutionProvider"]
+
+    preferred = []
+    if "CUDAExecutionProvider" in available and torch.cuda.is_available():
+        preferred.append("CUDAExecutionProvider")
+    if "CoreMLExecutionProvider" in available:
+        preferred.append("CoreMLExecutionProvider")
+    preferred.append("CPUExecutionProvider")
+    return preferred
+
+
 def _has_quantizable_modules(model: torch.nn.Module) -> bool:
     for module in model.modules():
         if isinstance(module, _QUANTIZABLE_MODULES):
@@ -273,7 +293,7 @@ def _quantize_onnx_int8(
         return False
 
     try:
-        session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])  # calibration always on CPU
         input_name = session.get_inputs()[0].name
     except Exception:
         input_name = "input"
@@ -326,9 +346,11 @@ def _load_ort_model(onnx_path: Path) -> OrtSegmenter | None:
         print(f"ONNX Runtime not available ({exc}).")
         return None
     try:
+        providers = _ort_providers()
         sess_options = ort.SessionOptions()
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        session = ort.InferenceSession(str(onnx_path), sess_options, providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(str(onnx_path), sess_options, providers=providers)
+        print(f"ONNX Runtime session created with providers: {session.get_providers()}")
         input_name = session.get_inputs()[0].name
         output_name = session.get_outputs()[0].name
         return OrtSegmenter(session, input_name, output_name)
@@ -435,6 +457,9 @@ def _run_model(
     Run the model and return logits as numpy array [H, W, C].
     """
     if isinstance(model, OrtSegmenter):
+        # ONNX Runtime expects a CPU numpy array as input even when
+        # running with CUDAExecutionProvider — the runtime handles the
+        # host→device transfer internally.
         tensor = preprocess_for_model(image_np, torch.device("cpu"))
         logits_np = model.run(tensor.cpu().numpy())
         if logits_np.ndim == 3:

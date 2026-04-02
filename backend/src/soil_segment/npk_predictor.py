@@ -23,6 +23,44 @@ CLASS_COMPOSITIONS = {
     6: {"N": 46.0, "P": 0.0,  "K": 0.0},   # Yellow_Urea
 }
 
+UNCOATED_ACTIVE_CLASS_IDS = (1, 2, 6)
+# Mild uncoated calibration tuned against the recent 14-7-35 debug fractions:
+UNCOATED_CLASS_NORMALIZATION_WEIGHTS = {
+    1: 1.06,  # Black DAP
+    2: 1.12,  # Red MOP
+    6: 0.80,  # Yellow Urea
+}
+
+
+def class_fractions_from_mask(
+    mask: np.ndarray,
+    *,
+    class_ids=None,
+) -> Dict[int, float]:
+    ids = tuple(CLASS_COMPOSITIONS.keys()) if class_ids is None else tuple(class_ids)
+    class_pixels = {cls: int(np.sum(mask == cls)) for cls in ids}
+    total_pixels = sum(class_pixels.values())
+    if total_pixels == 0:
+        return {cls: 0.0 for cls in ids}
+    return {cls: area / total_pixels for cls, area in class_pixels.items()}
+
+
+def round_fraction_map(values: Dict[int, float]) -> Dict[int, float]:
+    return {int(cls): float(round(float(value), 6)) for cls, value in values.items()}
+
+
+def npk_from_class_fractions(class_fractions: Dict[int, float]) -> list[float]:
+    npk_total = {"N": 0.0, "P": 0.0, "K": 0.0}
+    for cls, fraction in class_fractions.items():
+        comp = CLASS_COMPOSITIONS.get(cls, {"N": 0.0, "P": 0.0, "K": 0.0})
+        for key in npk_total:
+            npk_total[key] += comp[key] * float(fraction)
+    return [npk_total["N"], npk_total["P"], npk_total["K"]]
+
+
+def approximate_npk_from_mask(mask: np.ndarray) -> list[float]:
+    return npk_from_class_fractions(class_fractions_from_mask(mask))
+
 
 class NPKPredictor:
     def __init__(self, checkpoint_path: str, strict: bool = False):
@@ -57,23 +95,7 @@ class NPKPredictor:
                 self.model = None
 
     def predict(self, image_np: np.ndarray, mask: np.ndarray) -> Dict[str, float]:
-        # Pixel counts per class (ignore background=0)
-        class_pixels = {cls: int(np.sum(mask == cls)) for cls in CLASS_COMPOSITIONS.keys()}
-        total_pixels = sum(class_pixels.values())
-
-        if total_pixels == 0:
-            approx_npk = [0.0, 0.0, 0.0]
-        else:
-            npk_total = {"N": 0.0, "P": 0.0, "K": 0.0}
-            for cls, area in class_pixels.items():
-                comp = CLASS_COMPOSITIONS.get(cls, {"N": 0.0, "P": 0.0, "K": 0.0})
-                for key in npk_total:
-                    npk_total[key] += comp[key] * area
-            approx_npk = [
-                npk_total["N"] / total_pixels,
-                npk_total["P"] / total_pixels,
-                npk_total["K"] / total_pixels,
-            ]
+        approx_npk = approximate_npk_from_mask(mask)
 
         preds = None
         if self.model is not None and hasattr(self.model, "predict"):
@@ -87,3 +109,51 @@ class NPKPredictor:
 
         preds = [max(0.0, float(x)) for x in preds[:3]]
         return {"N": preds[0], "P": preds[1], "K": preds[2]}
+
+
+class ApproximateNPKPredictor:
+    def predict(self, image_np: np.ndarray, mask: np.ndarray) -> Dict[str, float]:
+        preds = approximate_npk_from_mask(mask)
+        return {"N": preds[0], "P": preds[1], "K": preds[2]}
+
+
+class UncoatedNormalizedPredictor:
+    def __init__(self, class_weights: Dict[int, float] | None = None):
+        self.class_weights = dict(UNCOATED_CLASS_NORMALIZATION_WEIGHTS)
+        if class_weights:
+            self.class_weights.update({int(k): float(v) for k, v in class_weights.items()})
+
+    def predict(self, image_np: np.ndarray, mask: np.ndarray) -> Dict[str, float]:
+        fractions = class_fractions_from_mask(mask, class_ids=UNCOATED_ACTIVE_CLASS_IDS)
+        weighted = {
+            cls: fractions.get(cls, 0.0) * self.class_weights.get(cls, 1.0)
+            for cls in UNCOATED_ACTIVE_CLASS_IDS
+        }
+        total = sum(weighted.values())
+        if total <= 0:
+            return {"N": 0.0, "P": 0.0, "K": 0.0}
+
+        normalized = {cls: value / total for cls, value in weighted.items()}
+        preds = npk_from_class_fractions(normalized)
+        return {"N": preds[0], "P": preds[1], "K": preds[2]}
+
+    def debug_info(self, mask: np.ndarray) -> Dict[str, Dict[int, float]]:
+        raw_fractions = class_fractions_from_mask(mask, class_ids=UNCOATED_ACTIVE_CLASS_IDS)
+        weighted_fractions = {
+            cls: raw_fractions.get(cls, 0.0) * self.class_weights.get(cls, 1.0)
+            for cls in UNCOATED_ACTIVE_CLASS_IDS
+        }
+        total = sum(weighted_fractions.values())
+        if total <= 0:
+            normalized_fractions = {cls: 0.0 for cls in UNCOATED_ACTIVE_CLASS_IDS}
+        else:
+            normalized_fractions = {
+                cls: value / total for cls, value in weighted_fractions.items()
+            }
+
+        return {
+            "raw_class_fractions": round_fraction_map(raw_fractions),
+            "weighted_class_fractions": round_fraction_map(weighted_fractions),
+            "normalized_class_fractions": round_fraction_map(normalized_fractions),
+            "class_weights": round_fraction_map(self.class_weights),
+        }

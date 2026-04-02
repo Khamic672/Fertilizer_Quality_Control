@@ -37,7 +37,12 @@ from soil_segment.inference import (
     predict_segmentation,
 )
 from soil_segment.model import DummySegmenter
-from soil_segment.npk_predictor import NPKPredictor
+from soil_segment.npk_predictor import (
+    ApproximateNPKPredictor,
+    NPKPredictor,
+    UNCOATED_CLASS_NORMALIZATION_WEIGHTS,
+    UncoatedNormalizedPredictor,
+)
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -73,6 +78,9 @@ unet_model = None
 unet_uncoated_model = None
 npk_predictor = None
 npk_uncoated_predictor = None
+npk_uncoated_approx_predictor = ApproximateNPKPredictor()
+npk_uncoated_normalized_predictor = UncoatedNormalizedPredictor()
+uncoated_model_error = None
 device = None
 history_items = []
 history_counter = 0
@@ -112,6 +120,8 @@ CLASS_HEX_COLORS = {
 }
 COATED_LEGEND_CLASS_IDS = (1, 2, 3, 4, 5, 6)
 UNCOATED_LEGEND_CLASS_IDS = (1, 2, 6)
+UNCOATED_EXPECTED_NUM_CLASSES = 4
+UNCOATED_LEGACY_NUM_CLASSES = 8
 UNCOATED_REMAP_BY_HEAD_SIZE = {
     4: {0: 0, 1: 1, 2: 2, 3: 6},
     8: {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 6},
@@ -155,6 +165,8 @@ def _resolve_coated_unet_checkpoint():
 
 def _resolve_uncoated_unet_checkpoint():
     return _resolve_existing_checkpoint(
+        UNCOATED_CHECKPOINT_DIR / "best_model_uncoated.pth",
+        CHECKPOINT_DIR / "best_model_uncoated.pth",
         UNCOATED_CHECKPOINT_DIR / "best_uncoated_model.pth",
         CHECKPOINT_DIR / "best_uncoated_model.pth",
         _resolve_dated_checkpoint(UNCOATED_CHECKPOINT_DIR, "-uncoated.pth"),
@@ -261,6 +273,17 @@ def _append_model_note(current_note, extra_note):
     return f"{current_note} {extra_note}"
 
 
+def _validate_uncoated_model(model) -> str | None:
+    num_classes = _model_num_classes(model)
+    if num_classes not in {UNCOATED_EXPECTED_NUM_CLASSES, UNCOATED_LEGACY_NUM_CLASSES}:
+        got = "unknown" if num_classes is None else str(num_classes)
+        return (
+            "Uncoated checkpoint does not match a supported backend format. "
+            f"Expected {UNCOATED_EXPECTED_NUM_CLASSES} or {UNCOATED_LEGACY_NUM_CLASSES} classes, got {got}."
+        )
+    return None
+
+
 def _model_num_classes(model) -> int | None:
     loaded_num_classes = getattr(model, "_loaded_num_classes", None)
     if loaded_num_classes is not None:
@@ -309,9 +332,9 @@ def _resolve_label_space(model, use_uncoated: bool) -> str:
         return "coated"
 
     num_classes = _model_num_classes(model)
-    if num_classes == 4:
+    if num_classes == UNCOATED_EXPECTED_NUM_CLASSES:
         return "uncoated_4"
-    if num_classes == 8:
+    if num_classes == UNCOATED_LEGACY_NUM_CLASSES:
         return "uncoated_8"
     return "coated"
 
@@ -339,13 +362,14 @@ def _validate_required_model_files() -> None:
 
 def initialize_models():
     """Load models on startup"""
-    global unet_model, unet_uncoated_model, npk_predictor, npk_uncoated_predictor, device
+    global unet_model, unet_uncoated_model, npk_predictor, npk_uncoated_predictor, uncoated_model_error, device
 
     # Reset globals so partial initialization does not look healthy.
     unet_model = None
     unet_uncoated_model = None
     npk_predictor = None
     npk_uncoated_predictor = None
+    uncoated_model_error = None
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     runtime_logger.info("Using device: %s", device)
 
@@ -381,22 +405,44 @@ def initialize_models():
             loaded_uncoated = load_uncoated_segmentation_model(str(UNET_UNCOATED_CHECKPOINT), device)
             if isinstance(loaded_uncoated, DummySegmenter):
                 load_error = getattr(loaded_uncoated, "_load_error", "unknown error")
+                uncoated_model_error = f"Uncoated model fallback detected: {load_error}"
                 runtime_logger.warning(
                     "Optional uncoated model fallback detected from %s: %s",
                     UNET_UNCOATED_CHECKPOINT,
                     load_error,
                 )
             else:
-                unet_uncoated_model = loaded_uncoated
+                validation_error = _validate_uncoated_model(loaded_uncoated)
+                if validation_error:
+                    uncoated_model_error = (
+                        f"{validation_error} Backend uncoated inference supports the current 4-class trainer and the legacy 8-class checkpoint."
+                    )
+                    runtime_logger.warning(
+                        "Optional uncoated model from %s rejected: %s",
+                        UNET_UNCOATED_CHECKPOINT,
+                        validation_error,
+                    )
+                else:
+                    if _model_num_classes(loaded_uncoated) == UNCOATED_LEGACY_NUM_CLASSES:
+                        runtime_logger.warning(
+                            "Loaded legacy 8-class uncoated checkpoint from %s. Backend will use compatibility remap.",
+                            UNET_UNCOATED_CHECKPOINT,
+                        )
+                    unet_uncoated_model = loaded_uncoated
         except Exception as exc:
+            uncoated_model_error = f"Optional uncoated model failed to load: {exc}"
             runtime_logger.warning(
                 "Optional uncoated model failed to load from %s: %s",
                 UNET_UNCOATED_CHECKPOINT,
                 exc,
             )
     else:
+        uncoated_model_error = (
+            f"Uncoated checkpoint not found at {UNET_UNCOATED_CHECKPOINT}. "
+            "Expected a 4-class model from the current trainer or a supported legacy 8-class checkpoint."
+        )
         runtime_logger.info(
-            "Optional uncoated model checkpoint not found yet at %s. Using coated model as placeholder.",
+            "Optional uncoated model checkpoint not found yet at %s. Expected a 4-class model from the current trainer or a supported legacy 8-class checkpoint.",
             UNET_UNCOATED_CHECKPOINT,
         )
 
@@ -427,7 +473,7 @@ def initialize_models():
             )
     else:
         runtime_logger.info(
-            "Optional uncoated regression model checkpoint not found yet at %s. Using coated regression as placeholder.",
+            "Optional uncoated regression model checkpoint not found yet at %s. Uncoated mode will use segmentation-derived NPK only.",
             REGRESSION_UNCOATED_CHECKPOINT,
         )
 
@@ -646,6 +692,19 @@ def next_history_id():
     return history_counter
 
 
+def format_history_formula(formula, use_uncoated=False):
+    """Format the formula label shown in history/export views."""
+    normalized_formula = (formula or "").strip()
+    if not normalized_formula:
+        return "N/A"
+    if not use_uncoated:
+        return normalized_formula
+
+    lowered = normalized_formula.lower()
+    if lowered.endswith("-u") or lowered.endswith("-uncoated"):
+        return normalized_formula
+    return f"{normalized_formula}-u"
+
 
 def extract_common_inputs():
     """Extract shared form/json inputs."""
@@ -675,34 +734,39 @@ def extract_common_inputs():
 
 
 def select_segmentation_model(use_uncoated: bool):
-    """Resolve coated/uncoated model choice with placeholder fallback."""
+    """Resolve coated/uncoated model choice."""
     if use_uncoated and unet_uncoated_model is not None:
         label_space = _resolve_label_space(unet_uncoated_model, use_uncoated=True)
-        model_note = None
-        if label_space == "uncoated_4":
-            model_note = "Uncoated runtime remaps reduced 4-class predictions into the shared backend class ids."
-        elif label_space == "uncoated_8":
-            model_note = "Uncoated runtime merges Yellow_Urea_uncoated into Yellow Urea for overlay and NPK."
+        model_note = "Uncoated runtime remaps reduced 4-class predictions into the shared backend class ids."
+        if label_space == "uncoated_8":
+            model_note = (
+                "Loaded legacy 8-class uncoated checkpoint. Backend is using compatibility remap to the shared class ids."
+            )
         return unet_uncoated_model, UNET_UNCOATED_CHECKPOINT.name, label_space, model_note
     if use_uncoated:
-        return (
-            unet_model,
-            UNET_COATED_CHECKPOINT.name,
-            "coated",
-            f"Uncoated model placeholder is active. Falling back to {UNET_COATED_CHECKPOINT.name}.",
+        raise RuntimeError(
+            uncoated_model_error
+            or "Uncoated inference requires a valid 4-class checkpoint produced by the current trainer."
         )
     return unet_model, UNET_COATED_CHECKPOINT.name, "coated", None
 
 
 def select_npk_predictor(use_uncoated: bool):
-    """Resolve coated/uncoated regression predictor choice with placeholder fallback."""
+    """Resolve coated/uncoated NPK predictor choice."""
     if use_uncoated and npk_uncoated_predictor is not None:
         return npk_uncoated_predictor, REGRESSION_UNCOATED_CHECKPOINT.name, None
     if use_uncoated:
+        weight_note = ", ".join(
+            f"{class_id}={weight:.2f}"
+            for class_id, weight in sorted(UNCOATED_CLASS_NORMALIZATION_WEIGHTS.items())
+        )
         return (
-            npk_predictor,
-            REGRESSION_CHECKPOINT.name,
-            f"Uncoated regression placeholder is active. Falling back to {REGRESSION_CHECKPOINT.name}.",
+            npk_uncoated_normalized_predictor,
+            "segmentation-normalized-npk",
+            (
+                "Uncoated mode is using backend class-fraction normalization "
+                f"before NPK conversion ({weight_note})."
+            ),
         )
     return npk_predictor, REGRESSION_CHECKPOINT.name, None
 
@@ -735,6 +799,12 @@ def process_image_payload(image_payload, target_npk, use_uncoated=False):
             mask = _canonicalize_mask(raw_mask, label_space)
             overlay = create_segmentation_overlay(image_np, mask)
             npk_values = predictor.predict(image_np, mask)
+            predictor_debug = {}
+            if hasattr(predictor, "debug_info"):
+                try:
+                    predictor_debug = predictor.debug_info(mask)
+                except Exception as exc:
+                    runtime_logger.warning("Predictor debug info failed: %s", exc)
             mask_pixels = int(np.sum(mask > 0))
             present_class_ids = sorted(int(value) for value in np.unique(mask) if int(value) != 0)
             cached = {
@@ -751,6 +821,7 @@ def process_image_payload(image_payload, target_npk, use_uncoated=False):
                     "label_space": label_space,
                     "regression_variant": regression_variant,
                 },
+                "predictor_debug": predictor_debug,
                 "class_legend": _legend_for_class_ids(present_class_ids) or _legend_for_label_space(label_space),
             }
             _cache_set(cache_key, cached)
@@ -777,6 +848,7 @@ def process_image_payload(image_payload, target_npk, use_uncoated=False):
             "model_variant": model_variant,
             "regression_variant": regression_variant,
             "metadata": cached["metadata"],
+            "predictor_debug": cached.get("predictor_debug", {}),
             "class_legend": cached.get("class_legend", _legend_for_label_space(label_space)),
         }
         if model_note:
@@ -792,14 +864,24 @@ def process_image_payload(image_payload, target_npk, use_uncoated=False):
         )
 
 
-def add_history_record(name, formula, lot_number, threshold, total_images, passed_images, avg_npk, status_level):
+def add_history_record(
+    name,
+    formula,
+    lot_number,
+    threshold,
+    total_images,
+    passed_images,
+    avg_npk,
+    status_level,
+    use_uncoated=False,
+):
     """Push a new history entry to the in-memory list."""
     record_id = next_history_id()
     record = {
         "id": record_id,
         "name": name or "upload",
         "lot_number": lot_number or "N/A",
-        "formula": formula or "N/A",
+        "formula": format_history_formula(formula, use_uncoated),
         "threshold": threshold,
         "total_images": total_images,
         "passed_images": passed_images,
@@ -826,6 +908,8 @@ def health_check():
         'status': 'healthy',
         'models_loaded': unet_model is not None and npk_predictor is not None,
         'uncoated_model_loaded': unet_uncoated_model is not None,
+        'uncoated_expected_num_classes': UNCOATED_EXPECTED_NUM_CLASSES,
+        'uncoated_model_error': uncoated_model_error,
         'uncoated_regression_loaded': npk_uncoated_predictor is not None,
         'device': str(device),
         'model_size': SEGMENTATION_MODEL_SIZE,
@@ -971,6 +1055,7 @@ def upload_and_process():
             passed_images=1 if processed["passed"] else 0,
             avg_npk=processed["npk"],
             status_level=processed["status_level"],
+            use_uncoated=use_uncoated,
         )
 
         return jsonify(response)
@@ -1023,6 +1108,7 @@ def batch_upload():
             passed_images=passed_images,
             avg_npk=avg_npk,
             status_level=status_level,
+            use_uncoated=use_uncoated,
         )
 
         return jsonify({

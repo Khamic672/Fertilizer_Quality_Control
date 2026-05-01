@@ -259,6 +259,37 @@ def _memory_rss_mb() -> float:
         return 0.0
 
 
+def _cuda_runtime_stats() -> dict:
+    """Best-effort snapshot of the active CUDA device and allocator state."""
+    stats = {
+        "device": str(device) if device is not None else "unknown",
+        "cuda_available": False,
+        "cuda_device_index": -1,
+        "cuda_device_name": "none",
+        "cuda_allocated_mb": 0.0,
+        "cuda_reserved_mb": 0.0,
+        "cuda_peak_allocated_mb": 0.0,
+        "cuda_peak_reserved_mb": 0.0,
+    }
+
+    try:
+        if device is None or getattr(device, "type", None) != "cuda" or not torch.cuda.is_available():
+            return stats
+
+        device_index = device.index if device.index is not None else torch.cuda.current_device()
+        stats["cuda_available"] = True
+        stats["cuda_device_index"] = int(device_index)
+        stats["cuda_device_name"] = torch.cuda.get_device_name(device_index)
+        stats["cuda_allocated_mb"] = torch.cuda.memory_allocated(device_index) / (1024 * 1024)
+        stats["cuda_reserved_mb"] = torch.cuda.memory_reserved(device_index) / (1024 * 1024)
+        stats["cuda_peak_allocated_mb"] = torch.cuda.max_memory_allocated(device_index) / (1024 * 1024)
+        stats["cuda_peak_reserved_mb"] = torch.cuda.max_memory_reserved(device_index) / (1024 * 1024)
+    except Exception:
+        pass
+
+    return stats
+
+
 def _request_size_bytes() -> int:
     if request.content_length is not None:
         return int(request.content_length)
@@ -904,6 +935,7 @@ def add_history_record(
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Check if server and models are ready"""
+    cuda_stats = _cuda_runtime_stats()
     return jsonify({
         'status': 'healthy',
         'models_loaded': unet_model is not None and npk_predictor is not None,
@@ -911,7 +943,14 @@ def health_check():
         'uncoated_expected_num_classes': UNCOATED_EXPECTED_NUM_CLASSES,
         'uncoated_model_error': uncoated_model_error,
         'uncoated_regression_loaded': npk_uncoated_predictor is not None,
-        'device': str(device),
+        'device': cuda_stats["device"],
+        'cuda_available': cuda_stats["cuda_available"],
+        'cuda_device_index': cuda_stats["cuda_device_index"],
+        'cuda_device_name': cuda_stats["cuda_device_name"],
+        'cuda_allocated_mb': cuda_stats["cuda_allocated_mb"],
+        'cuda_reserved_mb': cuda_stats["cuda_reserved_mb"],
+        'cuda_peak_allocated_mb': cuda_stats["cuda_peak_allocated_mb"],
+        'cuda_peak_reserved_mb': cuda_stats["cuda_peak_reserved_mb"],
         'model_size': SEGMENTATION_MODEL_SIZE,
     })
 
@@ -1193,9 +1232,13 @@ def _log_request_end(response):
     cpu_s = time.process_time() - getattr(g, "request_cpu_start", time.process_time())
     in_flight = _finish_request_count()
     uptime_s = time.monotonic() - APP_START_MONO
+    cuda_stats = _cuda_runtime_stats()
     runtime_logger.info(
         "request_end method=%s path=%s endpoint=%s status=%s duration_s=%.4f cpu_s=%.4f "
-        "uptime_s=%.1f rss_mb=%.1f in_flight=%s total_requests=%s endpoint_count=%s bytes_out=%s",
+        "uptime_s=%.1f rss_mb=%.1f device=%s cuda_available=%s cuda_device_index=%s "
+        "cuda_device_name=%s cuda_allocated_mb=%.1f cuda_reserved_mb=%.1f "
+        "cuda_peak_allocated_mb=%.1f cuda_peak_reserved_mb=%.1f "
+        "in_flight=%s total_requests=%s endpoint_count=%s bytes_out=%s",
         request.method,
         request.path,
         getattr(g, "endpoint", "unknown"),
@@ -1204,6 +1247,14 @@ def _log_request_end(response):
         cpu_s,
         uptime_s,
         _memory_rss_mb(),
+        cuda_stats["device"],
+        cuda_stats["cuda_available"],
+        cuda_stats["cuda_device_index"],
+        cuda_stats["cuda_device_name"],
+        cuda_stats["cuda_allocated_mb"],
+        cuda_stats["cuda_reserved_mb"],
+        cuda_stats["cuda_peak_allocated_mb"],
+        cuda_stats["cuda_peak_reserved_mb"],
         in_flight,
         _REQUEST_COUNT,
         getattr(g, "endpoint_count", 0),

@@ -1164,6 +1164,62 @@ def initialize_model_from_checkpoint(model, checkpoint_path):
         print(f"[Init] Skipped incompatible tensors: {len(skipped)}")
 
 
+def load_training_checkpoint(
+    trainer,
+    checkpoint_path,
+    *,
+    restore_optimizer=False,
+    restore_history=False,
+):
+    """Initialize a trainer from a checkpoint and optionally restore run state."""
+    if checkpoint_path is None:
+        return
+
+    checkpoint_path = Path(checkpoint_path).expanduser().resolve()
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Resume checkpoint not found: {checkpoint_path}")
+
+    checkpoint = torch.load(str(checkpoint_path), map_location=trainer.device)
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+    trainer.model.load_state_dict(state_dict)
+
+    print(f"[Resume] Loaded model weights from: {checkpoint_path}")
+
+    if restore_optimizer:
+        optimizer_state = checkpoint.get("optimizer_state_dict")
+        scheduler_state = checkpoint.get("scheduler_state_dict")
+        if optimizer_state:
+            trainer.optimizer.load_state_dict(optimizer_state)
+            print("[Resume] Restored optimizer state.")
+        else:
+            print("[Resume] No optimizer state found; using a fresh optimizer.")
+        if scheduler_state:
+            trainer.scheduler.load_state_dict(scheduler_state)
+            print("[Resume] Restored scheduler state.")
+        else:
+            print("[Resume] No scheduler state found; using a fresh scheduler.")
+
+    if restore_history:
+        history = checkpoint.get("history")
+        if history:
+            trainer.history = history
+            val_dice_history = history.get("val_dice", []) or []
+            if val_dice_history:
+                best_epoch, best_dice = max(
+                    enumerate(val_dice_history),
+                    key=lambda item: item[1],
+                )
+                trainer.best_epoch = int(best_epoch)
+                trainer.best_dice = float(checkpoint.get("best_dice", best_dice))
+                trainer.best_model_state = copy.deepcopy(trainer.model.state_dict())
+                print(
+                    f"[Resume] Restored history with best validation Dice "
+                    f"{trainer.best_dice:.4f}."
+                )
+        else:
+            print("[Resume] No history found; tracking this run from scratch.")
+
+
 def resolve_default_coated_checkpoint(checkpoints_dir: Path) -> Optional[Path]:
     legacy = checkpoints_dir / "best_model.pth"
     if legacy.exists():
@@ -1592,6 +1648,22 @@ def parse_args(argv=None):
         help="Weight decay for coated training",
     )
     parser.add_argument(
+        "--resume-checkpoint",
+        type=Path,
+        default=None,
+        help="Checkpoint to initialize coated training from",
+    )
+    parser.add_argument(
+        "--restore-optimizer",
+        action="store_true",
+        help="Restore optimizer/scheduler state from --resume-checkpoint",
+    )
+    parser.add_argument(
+        "--restore-history",
+        action="store_true",
+        help="Restore metric history and best Dice from --resume-checkpoint",
+    )
+    parser.add_argument(
         "--uncoated-patch-size",
         type=int,
         default=512,
@@ -1764,6 +1836,14 @@ def main(argv=None):
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay
     )
+
+    if args.resume_checkpoint:
+        load_training_checkpoint(
+            trainer,
+            args.resume_checkpoint,
+            restore_optimizer=args.restore_optimizer,
+            restore_history=args.restore_history,
+        )
     
     # Train model
     trainer.train(

@@ -175,6 +175,9 @@ class UNetParams(BaseModel):
     patience: int = 50
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
+    resume_checkpoint: Optional[str] = None
+    restore_optimizer: bool = False
+    restore_history: bool = False
     patch_size: int = 512
     patches_per_image: int = 32
     uncoated_batch_size: int = 4
@@ -232,7 +235,7 @@ def _build_unet_cmd(params: UNetParams, dataset_path: Path) -> List[str]:
             cmd += ["--uncoated-init-checkpoint", params.uncoated_init_checkpoint]
         return cmd
 
-    return cmd + [
+    cmd += [
         "--batch-size",
         str(params.batch_size),
         "--img-size",
@@ -246,6 +249,17 @@ def _build_unet_cmd(params: UNetParams, dataset_path: Path) -> List[str]:
         "--weight-decay",
         str(params.weight_decay),
     ]
+    checkpoint_name = _single_file_name(params.resume_checkpoint, label="Checkpoint name")
+    if checkpoint_name:
+        checkpoint_path = Path(_PATHS["checkpoints"]) / checkpoint_name
+        if not checkpoint_path.is_file():
+            raise HTTPException(400, f"Checkpoint not found: {checkpoint_name}")
+        cmd += ["--resume-checkpoint", str(checkpoint_path)]
+        if params.restore_optimizer:
+            cmd.append("--restore-optimizer")
+        if params.restore_history:
+            cmd.append("--restore-history")
+    return cmd
 
 
 def _build_regression_cmd(params: RegressionParams, dataset_path: Path) -> List[str]:

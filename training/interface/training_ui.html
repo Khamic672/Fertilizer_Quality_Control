@@ -332,6 +332,14 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px var(--font-sans)}
             <div class="form-group"><label class="form-label">Early stopping patience</label><input v-model.number="unet.patience" type="number" class="form-input" min="1" max="500" /></div>
             <div class="form-group"><label class="form-label">Learning rate</label><input v-model="unet.learning_rate" type="text" class="form-input" placeholder="1e-3" /></div>
             <div class="form-group"><label class="form-label">Weight decay</label><input v-model="unet.weight_decay" type="text" class="form-input" placeholder="1e-4" /></div>
+            <div class="form-group">
+              <label class="form-label">Resume checkpoint</label>
+              <select v-model="unet.resume_checkpoint" class="form-select">
+                <option value="">None</option>
+                <option v-for="f in availableUNetCheckpoints" :key="f" :value="f">{{ f }}</option>
+              </select>
+              <span class="form-hint">Loads model weights before training.</span>
+            </div>
             <div class="form-group"><label class="form-label">Random seed</label><input v-model.number="unet.seed" type="number" class="form-input" /></div>
           </div>
           <div v-else class="form-grid">
@@ -521,6 +529,9 @@ createApp({
       patience: 50,
       learning_rate: "1e-3",
       weight_decay: "1e-4",
+      resume_checkpoint: "",
+      restore_optimizer: false,
+      restore_history: false,
       patch_size: 512,
       patches_per_image: 32,
       uncoated_batch_size: 4,
@@ -586,6 +597,12 @@ createApp({
       (dsInfo.value?.checkpoints?.files ?? []).filter((name) =>
         name.toLowerCase().endsWith(".pth") &&
         !/^best_model(?:_uncoated)?\.pth$/i.test(name)
+      )
+    );
+    const availableUNetCheckpoints = computed(() =>
+      (dsInfo.value?.checkpoints?.files ?? []).filter((name) =>
+        name.toLowerCase().endsWith(".pth") &&
+        !name.toLowerCase().includes("uncoated")
       )
     );
     const selectedDatasetCards = computed(() =>
@@ -798,6 +815,7 @@ createApp({
           uncoated_learning_rate: parseFloatValue(unet.value.uncoated_learning_rate),
           uncoated_weight_decay: parseFloatValue(unet.value.uncoated_weight_decay),
           uncoated_init_checkpoint: unet.value.uncoated_init_checkpoint.trim() || null,
+          resume_checkpoint: unet.value.resume_checkpoint || null,
         };
         await api("POST", "/api/train/unet/start", payload);
         toast("UNet training started", "success");
@@ -1033,7 +1051,7 @@ createApp({
     return {
       tab, dragging, uploading, uploadFiles, uploadForm, dsInfo, toasts, logBox, useCustomDataset, selectedDatasets,
       status, unet, reg, serverUrl, tabTitle, tabSub, isRegressionUpload, availableDatasets, availableUploadDatasetNames,
-      availableRegressionModels,
+      availableRegressionModels, availableUNetCheckpoints,
       selectedDatasetCards, effectiveUnetDatasetNames, effectiveRegressionDatasetNames, effectiveUnetDatasetCards,
       effectiveRegressionDatasetCards, uploadAccept, latestMetric, displayLog, activeProgressDatasets, progressModeLabel, progressBatchLabel,
       loadDatasetInfo, onFileSelect, onDrop, doUpload, startUnet, startRegression, stopTraining, clearMetrics,

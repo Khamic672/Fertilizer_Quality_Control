@@ -50,6 +50,10 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 MASK_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
+def _is_uncoated_name(name: str) -> bool:
+    return "-uncoated" in Path(name).stem.lower()
+
+
 app = FastAPI(title="Soil Segment Training Server", version="1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -326,7 +330,7 @@ def _list_formula_datasets(base: Path) -> List[Dict[str, Any]]:
                 "masks": masks,
                 "exists": child.exists(),
                 "trainable": images > 0 and masks > 0,
-                "uncoated": "uncoated" in child.name.lower(),
+                "uncoated": _is_uncoated_name(child.name),
             }
         )
     return rows
@@ -448,7 +452,7 @@ def _resolve_mode_training_datasets(
     return effective, ignored
 
 
-def _prepare_unet_selection_root(dataset_names: List[str]) -> Path:
+def _prepare_unet_selection_root(dataset_names: List[str], *, uncoated: bool) -> Path:
     source_root = Path(_PATHS["unet_dataset"])
     selection_root = TRAINING_SELECTION_ROOT / "unet_selected"
     if selection_root.exists():
@@ -462,6 +466,9 @@ def _prepare_unet_selection_root(dataset_names: List[str]) -> Path:
     copied_images = 0
     copied_masks = 0
     for dataset_name in dataset_names:
+        if _is_uncoated_name(dataset_name) != uncoated:
+            continue
+
         dataset_dir = source_root / dataset_name
         prefix = re.sub(r"[^A-Za-z0-9._-]+", "_", dataset_name).strip("_") or "dataset"
 
@@ -628,7 +635,10 @@ def start_unet(params: UNetParams):
         params.datasets,
         uncoated=params.uncoated,
     )
-    dataset_path = _prepare_unet_selection_root(selected_datasets)
+    dataset_path = _prepare_unet_selection_root(
+        selected_datasets,
+        uncoated=params.uncoated,
+    )
 
     with _state_lock:
         if _state["running"]:

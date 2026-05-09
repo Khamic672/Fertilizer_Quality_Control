@@ -47,6 +47,11 @@ N_CLASSES = len(COATED_CLASS_NAMES)
 MASK_EXTENSIONS = ('.png', '.jpg', '.jpeg')
 
 
+def is_uncoated_name(name) -> bool:
+    """Return True when a dataset/sample name is marked as uncoated."""
+    return "-uncoated" in Path(str(name)).stem.lower()
+
+
 def get_class_names(n_classes, *, uncoated=False):
     """Return class names trimmed/padded to match n_classes."""
     preferred = UNCOATED_CLASS_NAMES if uncoated or n_classes == len(UNCOATED_CLASS_NAMES) else COATED_CLASS_NAMES
@@ -188,6 +193,7 @@ class BeadDataset(Dataset):
         debug=False,
         uncoated=False,
         cache_in_memory=False,
+        exclude_uncoated=False,
     ):
         self.image_dir = image_dir
         self.mask_dir = mask_dir
@@ -198,10 +204,23 @@ class BeadDataset(Dataset):
         self._pair_cache = {}
         
         # Sort for deterministic ordering
-        self.images = sorted(
+        discovered_images = sorted(
             f for f in os.listdir(image_dir) 
             if f.lower().endswith(('.png', '.jpg', '.jpeg'))
         )
+        if exclude_uncoated:
+            self.images = [
+                f for f in discovered_images
+                if not is_uncoated_name(f)
+            ]
+            excluded_count = len(discovered_images) - len(self.images)
+            if excluded_count:
+                print(
+                    f"[DATASET] Excluded {excluded_count} uncoated sample(s) "
+                    "from coated training."
+                )
+        else:
+            self.images = discovered_images
 
         if self.debug:
             print(f"[BeadDataset] Found {len(self.images)} images in {image_dir}")
@@ -958,7 +977,8 @@ def create_data_loaders(data_dir, batch_size=2, img_size=1024,
         os.path.join(data_dir, 'images'),
         os.path.join(data_dir, 'masks'),
         transform=None,
-        debug=False
+        debug=False,
+        exclude_uncoated=True,
     )
     
     total_samples = len(base_dataset)
@@ -1432,7 +1452,13 @@ def visualize_predictions(model, dataset, device, num_samples=4,
     plt.close(fig)
 
 
-def verify_dataset_classes(data_dir, expected_classes=N_CLASSES, *, uncoated=False):
+def verify_dataset_classes(
+    data_dir,
+    expected_classes=N_CLASSES,
+    *,
+    uncoated=False,
+    exclude_uncoated=False,
+):
     """Verify class labels in mask files and return sorted discovered classes."""
     print("\n" + "="*70)
     print("Verifying Dataset Classes")
@@ -1449,6 +1475,9 @@ def verify_dataset_classes(data_dir, expected_classes=N_CLASSES, *, uncoated=Fal
     class_counts = {}
 
     for mask_file in mask_files:
+        if exclude_uncoated and is_uncoated_name(mask_file):
+            continue
+
         mask_path = os.path.join(mask_dir, mask_file)
         mask = np.array(Image.open(mask_path))
 
@@ -1466,6 +1495,10 @@ def verify_dataset_classes(data_dir, expected_classes=N_CLASSES, *, uncoated=Fal
             class_counts[int(cls)] = class_counts.get(int(cls), 0) + 1
 
     found_classes = sorted(int(cls) for cls in all_classes)
+    if exclude_uncoated:
+        excluded_count = len([f for f in mask_files if is_uncoated_name(f)])
+        if excluded_count:
+            print(f"\nExcluded uncoated masks from coated verification: {excluded_count}")
     if uncoated:
         print(f"\nRaw classes: {sorted(int(cls) for cls in raw_classes)}")
         print(f"Remapped uncoated classes: {found_classes}")
@@ -1649,6 +1682,7 @@ def main(argv=None):
         dataset_dir,
         expected_classes=expected_classes,
         uncoated=args.uncoated,
+        exclude_uncoated=not args.uncoated,
     )
     if not found_classes:
         raise RuntimeError(f"No mask classes found under: {dataset_dir}")
